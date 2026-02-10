@@ -22,6 +22,8 @@ It supports:
 
 - **Scheduled runs** every 30 minutes.
 - **Manual runs** via **Actions → Arena Leaderboard Notifier → Run workflow**.
+  - Optional `force_send` input for webhook delivery testing.
+  - Optional `dry_run` input to validate hashing/change detection without posting to Discord.
 
 ### 3) State persistence in the cloud
 
@@ -44,3 +46,21 @@ python leaderboard_notifier.py --force-send
 python leaderboard_notifier.py --state-file /path/to/state.json
 python leaderboard_notifier.py --url https://arena.ai/leaderboard/text/overall-no-style-control
 ```
+
+### Quick testing checklist
+
+- Test message delivery (requires `DISCORD_WEBHOOK_URL`):
+
+  ```bash
+  python leaderboard_notifier.py --force-send
+  ```
+
+- Test hashing/change detection without posting to Discord:
+
+  ```bash
+  python leaderboard_notifier.py --dry-run --force-send
+  ```
+
+- In GitHub Actions, run the workflow manually and set:
+  - `force_send: true` to verify Discord delivery using your repository secret.
+  - `dry_run: true` to verify logic without sending a message.
