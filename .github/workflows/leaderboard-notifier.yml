@@ -3,7 +3,18 @@ name: Arena Leaderboard Notifier
 on:
   schedule:
     - cron: "*/30 * * * *"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      force_send:
+        description: "Force-send a Discord message even when no leaderboard change is detected"
+        required: false
+        default: false
+        type: boolean
+      dry_run:
+        description: "Run checks but do not post to Discord"
+        required: false
+        default: false
+        type: boolean
 
 permissions:
   contents: read
@@ -38,9 +49,13 @@ jobs:
       - name: Run leaderboard notifier
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          FORCE_SEND: ${{ github.event.inputs.force_send == 'true' && '--force-send' || '' }}
+          DRY_RUN: ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }}
         run: |
           python leaderboard_notifier.py \
-            --state-file "$STATE_FILE"
+            --state-file "$STATE_FILE" \
+            $FORCE_SEND \
+            $DRY_RUN
 
       - name: Save updated state cache
         if: always()
