@@ -25,6 +25,7 @@ DEFAULT_STATE_FILE = "leaderboard_state.json"
 DEFAULT_TIMEOUT = 30
 DEFAULT_RETRIES = 3
 DEFAULT_RETRY_BACKOFF_SECONDS = 2.0
+DEFAULT_CONFIRMATION_CHECKS = 2
 DISCORD_WEBHOOK_HOSTS = ("discord.com", "discordapp.com", "ptb.discord.com", "canary.discord.com")
 DEFAULT_SNAPSHOT_TOP_N = 10
 MAX_DISCORD_MESSAGE_LENGTH = 1800
@@ -407,6 +408,15 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--confirmation-checks",
+        type=int,
+        default=DEFAULT_CONFIRMATION_CHECKS,
+        help=(
+            "Number of consecutive checks that must observe a new fingerprint "
+            f"before notifying (default: {DEFAULT_CONFIRMATION_CHECKS})"
+        ),
+    )
+    parser.add_argument(
         "--force-send",
         action="store_true",
         help="Send Discord notification even if no change is detected",
@@ -466,12 +476,53 @@ def run_single_check(args: argparse.Namespace) -> int:
     old_snapshot = state.get("snapshot")
     if not isinstance(old_snapshot, list):
         old_snapshot = None
-    changed = old_hash != new_hash
+
+    pending_hash = state.get("pending_hash")
+    pending_snapshot = state.get("pending_snapshot")
+    if not isinstance(pending_snapshot, list):
+        pending_snapshot = None
+    pending_count = state.get("pending_count", 0)
+    if not isinstance(pending_count, int) or pending_count < 0:
+        pending_count = 0
+
+    changed = False
+    effective_old_hash = old_hash
+    effective_old_snapshot = old_snapshot
+
+    if old_hash == new_hash:
+        state.pop("pending_hash", None)
+        state.pop("pending_snapshot", None)
+        state.pop("pending_count", None)
+    else:
+        if pending_hash == new_hash:
+            pending_count += 1
+        else:
+            pending_hash = new_hash
+            pending_snapshot = current_snapshot
+            pending_count = 1
+
+        state["pending_hash"] = pending_hash
+        state["pending_snapshot"] = pending_snapshot
+        state["pending_count"] = pending_count
+
+        if pending_count >= args.confirmation_checks:
+            changed = True
+            effective_old_hash = old_hash
+            effective_old_snapshot = old_snapshot
+            state.pop("pending_hash", None)
+            state.pop("pending_snapshot", None)
+            state.pop("pending_count", None)
 
     if changed:
         print("Leaderboard content changed.")
     else:
-        print("No leaderboard change detected.")
+        if old_hash != new_hash:
+            print(
+                "Observed a new leaderboard fingerprint but waiting for confirmation "
+                f"({pending_count}/{args.confirmation_checks})."
+            )
+        else:
+            print("No leaderboard change detected.")
 
     should_send = args.force_send or changed
 
@@ -482,9 +533,9 @@ def run_single_check(args: argparse.Namespace) -> int:
             use_legacy_hash_message = old_hash is not None and old_snapshot is None
             message = build_message(
                 args.url,
-                old_hash,
+                effective_old_hash,
                 new_hash,
-                previous_snapshot=old_snapshot,
+                previous_snapshot=effective_old_snapshot,
                 current_snapshot=current_snapshot,
                 use_legacy_hash_message=use_legacy_hash_message,
             )
@@ -518,15 +569,15 @@ def run_single_check(args: argparse.Namespace) -> int:
                 return 1
             print("Discord notification sent.")
 
-    state.update(
-        {
-            "url": args.url,
-            "hash": new_hash,
-            "snapshot_top_n": DEFAULT_SNAPSHOT_TOP_N,
-            "snapshot": current_snapshot,
-            "last_checked_utc": datetime.now(timezone.utc).isoformat(),
-        }
-    )
+    state_updates = {
+        "url": args.url,
+        "snapshot_top_n": DEFAULT_SNAPSHOT_TOP_N,
+        "last_checked_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    if changed or old_hash is None:
+        state_updates["hash"] = new_hash
+        state_updates["snapshot"] = current_snapshot
+    state.update(state_updates)
     save_state(args.state_file, state)
     return 0
 
@@ -546,6 +597,9 @@ def main() -> int:
         return 2
     if args.retry_backoff_seconds < 0:
         print("Error: --retry-backoff-seconds must be non-negative", file=sys.stderr)
+        return 2
+    if args.confirmation_checks <= 0:
+        print("Error: --confirmation-checks must be greater than 0", file=sys.stderr)
         return 2
     if args.min_interval_seconds > args.max_interval_seconds:
         print("Error: --min-interval-seconds cannot be greater than --max-interval-seconds", file=sys.stderr)

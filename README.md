@@ -51,7 +51,7 @@ This keeps change detection consistent between scheduled runs without any local 
 
 ## Script details
 
-`leaderboard_notifier.py` checks the leaderboard page, hashes normalized page text, compares it with the previous hash from a state file, and sends a Discord webhook message when a change is detected.
+`leaderboard_notifier.py` checks the leaderboard page, hashes normalized page text, compares it with the previous hash from a state file, and sends a Discord webhook message when a change is detected. To reduce noisy flip-flop alerts from transient upstream variants, a new fingerprint must be seen for consecutive checks before it is announced.
 
 When run locally, the notifier automatically creates `leaderboard_state.json` in the repository root (or at the path you pass via `--state-file`) after the first successful check.
 
@@ -68,6 +68,7 @@ python leaderboard_notifier.py --state-file /path/to/state.json
 python leaderboard_notifier.py --url https://arena.ai/leaderboard/text/overall-no-style-control
 python leaderboard_notifier.py --loop --min-interval-seconds 120 --max-interval-seconds 300 --max-checks 12
 python leaderboard_notifier.py --retries 3 --retry-backoff-seconds 2
+python leaderboard_notifier.py --confirmation-checks 2
 ```
 
 ### Quick testing checklist
@@ -104,6 +105,7 @@ CLI flags:
 
 - `--retries` (default: `3`) — number of retry attempts after the initial request fails.
 - `--retry-backoff-seconds` (default: `2`) — base backoff delay in seconds; each retry doubles the delay.
+- `--confirmation-checks` (default: `2`) — number of consecutive checks that must observe a new fingerprint before notification.
 
 ## Troubleshooting
 
