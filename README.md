@@ -53,6 +53,10 @@ This keeps change detection consistent between scheduled runs without any local 
 
 `leaderboard_notifier.py` checks the leaderboard page, hashes normalized page text, compares it with the previous hash from a state file, and sends a Discord webhook message when a change is detected.
 
+To reduce false positives, hashing now focuses on a narrower leaderboard-specific HTML region identified by stable anchors (for example leaderboard title text, leaderboard container markers, and common table section labels). During normalization, dynamic or non-semantic content (timestamps, tracking-related snippets, and broad nav/footer/aside regions) is stripped before whitespace collapsing and HTML unescaping.
+
+If focused extraction fails, the script falls back to whole-page normalization and prints a warning to stderr so operators can still monitor changes without silently missing checks.
+
 Useful options:
 
 ```bash

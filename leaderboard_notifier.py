@@ -41,11 +41,56 @@ def fetch_html(url: str, timeout: int) -> str:
 
 
 def normalize_html_for_hash(html: str) -> str:
-    without_scripts = re.sub(r"<script\b[^>]*>.*?</script>", "", html, flags=re.I | re.S)
-    without_styles = re.sub(r"<style\b[^>]*>.*?</style>", "", without_scripts, flags=re.I | re.S)
-    text_only = re.sub(r"<[^>]+>", " ", without_styles)
-    text_only = unescape(text_only)
-    return re.sub(r"\s+", " ", text_only).strip()
+    def normalize_text(content: str) -> str:
+        text_only = re.sub(r"<[^>]+>", " ", content)
+        text_only = unescape(text_only)
+        text_only = re.sub(
+            r"\b(?:last\s+updated|updated\s+at|generated\s+at|timestamp)\b[^\n<]{0,80}",
+            " ",
+            text_only,
+            flags=re.I,
+        )
+        text_only = re.sub(
+            r"\b\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(?::\d{2})?(?:\s*UTC|\s*GMT|Z)?\b",
+            " ",
+            text_only,
+            flags=re.I,
+        )
+        text_only = re.sub(r"\b(?:ga|gtm|utm_[a-z_]+|analytics|tracking)\b", " ", text_only, flags=re.I)
+        return re.sub(r"\s+", " ", text_only).strip()
+
+    base_html = re.sub(r"<!--.*?-->", " ", html, flags=re.S)
+    base_html = re.sub(r"<script\b[^>]*>.*?</script>", " ", base_html, flags=re.I | re.S)
+    base_html = re.sub(r"<style\b[^>]*>.*?</style>", " ", base_html, flags=re.I | re.S)
+    base_html = re.sub(r"<(?:nav|footer|aside)\b[^>]*>.*?</(?:nav|footer|aside)>", " ", base_html, flags=re.I | re.S)
+
+    anchor_patterns = [
+        r"(?i)arena\s+llm\s+leaderboard",
+        r"(?i)overall[-\s]+no[-\s]+style[-\s]+control",
+        r"(?i)(?:id|class)=[\"'][^\"']*leaderboard[^\"']*[\"']",
+        r"(?i)>\s*leaderboard\s*<",
+        r"(?i)\b(?:rank|model|score|elo)\b",
+    ]
+
+    match_spans: list[tuple[int, int]] = []
+    for pattern in anchor_patterns:
+        for match in re.finditer(pattern, base_html):
+            match_spans.append((match.start(), match.end()))
+
+    if match_spans:
+        min_start = min(start for start, _ in match_spans)
+        max_end = max(end for _, end in match_spans)
+        padding = 5000
+        focused_region = base_html[max(0, min_start - padding) : min(len(base_html), max_end + padding)]
+        normalized_focused = normalize_text(focused_region)
+        if normalized_focused:
+            return normalized_focused
+
+    print(
+        "Warning: focused leaderboard extraction failed; using whole-page normalization fallback.",
+        file=sys.stderr,
+    )
+    return normalize_text(base_html)
 
 
 def compute_hash(value: str) -> str:
