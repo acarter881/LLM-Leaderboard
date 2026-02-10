@@ -1,0 +1,50 @@
+name: Arena Leaderboard Notifier
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+env:
+  STATE_FILE: .github/state/leaderboard_state.json
+
+jobs:
+  check-leaderboard:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Restore previous state cache
+        id: restore-state
+        uses: actions/cache/restore@v4
+        with:
+          path: .github/state
+          key: leaderboard-state-${{ github.run_id }}
+          restore-keys: |
+            leaderboard-state-
+
+      - name: Ensure state directory exists
+        run: mkdir -p .github/state
+
+      - name: Run leaderboard notifier
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          python leaderboard_notifier.py \
+            --state-file "$STATE_FILE"
+
+      - name: Save updated state cache
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: .github/state
+          key: leaderboard-state-${{ github.run_id }}
