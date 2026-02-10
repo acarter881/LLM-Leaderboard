@@ -65,6 +65,7 @@ python leaderboard_notifier.py --force-send
 python leaderboard_notifier.py --state-file /path/to/state.json
 python leaderboard_notifier.py --url https://arena.ai/leaderboard/text/overall-no-style-control
 python leaderboard_notifier.py --loop --min-interval-seconds 120 --max-interval-seconds 300 --max-checks 12
+python leaderboard_notifier.py --retries 3 --retry-backoff-seconds 2
 ```
 
 ### Quick testing checklist
@@ -84,6 +85,20 @@ python leaderboard_notifier.py --loop --min-interval-seconds 120 --max-interval-
 - In GitHub Actions, run the workflow manually and set:
   - `force_send: true` to verify Discord delivery using your repository secret.
   - `dry_run: true` to verify logic without sending a message.
+
+
+### Retry behavior for transient network failures
+
+The notifier automatically retries temporary network failures for both leaderboard fetches and Discord delivery attempts.
+
+- Retryable failures: timeouts, `URLError` network failures, and HTTP `5xx` responses.
+- Non-retryable failures: invalid webhook configuration and HTTP `4xx` client/auth/permission errors.
+- Retry logging: each retry prints the attempt count, delay, and failure reason to stderr.
+
+CLI flags:
+
+- `--retries` (default: `3`) — number of retry attempts after the initial request fails.
+- `--retry-backoff-seconds` (default: `2`) — base backoff delay in seconds; each retry doubles the delay.
 
 ## Troubleshooting
 
