@@ -20,10 +20,25 @@ The workflow file is at `.github/workflows/leaderboard-notifier.yml`.
 
 It supports:
 
-- **Scheduled runs** every 30 minutes.
+- **Scheduled runs** hourly.
 - **Manual runs** via **Actions → Arena Leaderboard Notifier → Run workflow**.
   - Optional `force_send` input for webhook delivery testing.
   - Optional `dry_run` input to validate hashing/change detection without posting to Discord.
+
+### Why hourly scheduling with internal polling
+
+GitHub Actions cron schedules are not guaranteed to run more frequently than every 5 minutes, and real trigger timing can still vary. To get more responsive checks, this workflow starts hourly and then runs multiple checks inside one workflow execution using randomized delays.
+
+Current loop configuration in the workflow:
+
+- `--loop`
+- `--min-interval-seconds 120`
+- `--max-interval-seconds 300`
+- `--max-checks 12`
+
+This gives an effective internal polling cadence of roughly **2–5 minutes** between checks for up to 12 checks per workflow run.
+
+Tradeoff: each run stays alive longer, which increases GitHub Actions runtime/minutes consumption.
 
 ### 3) State persistence in the cloud
 
@@ -45,6 +60,7 @@ python leaderboard_notifier.py --dry-run
 python leaderboard_notifier.py --force-send
 python leaderboard_notifier.py --state-file /path/to/state.json
 python leaderboard_notifier.py --url https://arena.ai/leaderboard/text/overall-no-style-control
+python leaderboard_notifier.py --loop --min-interval-seconds 120 --max-interval-seconds 300 --max-checks 12
 ```
 
 ### Quick testing checklist

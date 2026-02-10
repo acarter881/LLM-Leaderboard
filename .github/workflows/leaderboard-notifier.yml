@@ -2,7 +2,7 @@ name: Arena Leaderboard Notifier
 
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "0 * * * *"
   workflow_dispatch:
     inputs:
       force_send:
@@ -54,6 +54,10 @@ jobs:
         run: |
           python leaderboard_notifier.py \
             --state-file "$STATE_FILE" \
+            --loop \
+            --min-interval-seconds 120 \
+            --max-interval-seconds 300 \
+            --max-checks 12 \
             $FORCE_SEND \
             $DRY_RUN
 

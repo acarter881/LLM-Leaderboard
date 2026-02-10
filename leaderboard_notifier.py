@@ -7,9 +7,11 @@ import argparse
 import hashlib
 import json
 import os
+import random
 import re
 import sys
 import textwrap
+import time
 from datetime import datetime, timezone
 from html import unescape
 from pathlib import Path
@@ -129,15 +131,32 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Do everything except posting to Discord",
     )
+    parser.add_argument(
+        "--loop",
+        action="store_true",
+        help="Repeat checks in a loop with randomized delays",
+    )
+    parser.add_argument(
+        "--min-interval-seconds",
+        type=int,
+        default=120,
+        help="Minimum randomized delay between loop checks (default: 120)",
+    )
+    parser.add_argument(
+        "--max-interval-seconds",
+        type=int,
+        default=300,
+        help="Maximum randomized delay between loop checks (default: 300)",
+    )
+    parser.add_argument(
+        "--max-checks",
+        type=int,
+        help="Optional cap on number of checks when --loop is enabled",
+    )
     return parser.parse_args()
 
 
-def main() -> int:
-    args = parse_args()
-
-    if not args.webhook_url and not args.dry_run:
-        print("Error: provide --webhook-url or set DISCORD_WEBHOOK_URL", file=sys.stderr)
-        return 2
+def run_single_check(args: argparse.Namespace) -> int:
 
     try:
         html = fetch_html(args.url, args.timeout)
@@ -195,6 +214,43 @@ def main() -> int:
     )
     save_state(args.state_file, state)
     return 0
+
+
+def main() -> int:
+    args = parse_args()
+
+    if not args.webhook_url and not args.dry_run:
+        print("Error: provide --webhook-url or set DISCORD_WEBHOOK_URL", file=sys.stderr)
+        return 2
+
+    if args.min_interval_seconds < 0 or args.max_interval_seconds < 0:
+        print("Error: interval values must be non-negative", file=sys.stderr)
+        return 2
+    if args.min_interval_seconds > args.max_interval_seconds:
+        print("Error: --min-interval-seconds cannot be greater than --max-interval-seconds", file=sys.stderr)
+        return 2
+    if args.max_checks is not None and args.max_checks <= 0:
+        print("Error: --max-checks must be greater than 0", file=sys.stderr)
+        return 2
+
+    if not args.loop:
+        return run_single_check(args)
+
+    check_count = 0
+    while True:
+        check_count += 1
+        print(f"Starting check {check_count}.")
+        result = run_single_check(args)
+        if result != 0:
+            return result
+
+        if args.max_checks is not None and check_count >= args.max_checks:
+            print(f"Reached max checks ({args.max_checks}); stopping loop.")
+            return 0
+
+        sleep_seconds = random.randint(args.min_interval_seconds, args.max_interval_seconds)
+        print(f"Sleeping {sleep_seconds} seconds before next check.")
+        time.sleep(sleep_seconds)
 
 
 if __name__ == "__main__":
