@@ -14,10 +14,12 @@ from datetime import datetime, timezone
 from html import unescape
 from pathlib import Path
 from urllib import error, request
+from urllib.parse import urlparse
 
 DEFAULT_URL = "https://arena.ai/leaderboard/text/overall-no-style-control"
 DEFAULT_STATE_FILE = ".leaderboard_state.json"
 DEFAULT_TIMEOUT = 30
+DISCORD_WEBHOOK_HOSTS = ("discord.com", "discordapp.com", "ptb.discord.com", "canary.discord.com")
 
 
 def fetch_html(url: str, timeout: int) -> str:
@@ -62,11 +64,23 @@ def save_state(path: Path, state: dict) -> None:
 
 
 def send_discord_message(webhook_url: str, message: str, timeout: int) -> None:
+    cleaned_webhook_url = webhook_url.strip()
+    if not cleaned_webhook_url:
+        raise ValueError("Discord webhook URL is empty")
+
+    parsed_webhook_url = urlparse(cleaned_webhook_url)
+    if parsed_webhook_url.scheme != "https" or parsed_webhook_url.netloc not in DISCORD_WEBHOOK_HOSTS:
+        raise ValueError("Webhook URL does not look like a Discord webhook URL")
+
     payload = json.dumps({"content": message}).encode("utf-8")
     req = request.Request(
-        webhook_url,
+        cleaned_webhook_url,
         data=payload,
-        headers={"Content-Type": "application/json"},
+        headers={
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "User-Agent": "LLM-Leaderboard-Notifier/1.0",
+        },
         method="POST",
     )
     with request.urlopen(req, timeout=timeout) as response:
@@ -153,7 +167,21 @@ def main() -> int:
         else:
             try:
                 send_discord_message(args.webhook_url, message, args.timeout)
-            except error.URLError as exc:
+            except error.HTTPError as exc:
+                details = ""
+                try:
+                    details = exc.read().decode("utf-8", errors="replace").strip()
+                except Exception:
+                    details = ""
+                if details:
+                    print(
+                        f"Failed to send Discord message: HTTP {exc.code} {exc.reason} | {details}",
+                        file=sys.stderr,
+                    )
+                else:
+                    print(f"Failed to send Discord message: HTTP {exc.code} {exc.reason}", file=sys.stderr)
+                return 1
+            except (error.URLError, ValueError) as exc:
                 print(f"Failed to send Discord message: {exc}", file=sys.stderr)
                 return 1
             print("Discord notification sent.")

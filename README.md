@@ -80,3 +80,12 @@ Check the following:
 5. **Run once with** `force_send: true` and `dry_run: false` to verify delivery.
 
 Tip: if this still returns 403, regenerate the Discord webhook and update the repository secret with the newly generated URL.
+
+### Better error output for webhook failures
+
+The notifier now prints Discord's response body for HTTP errors (when available). This helps distinguish common cases like:
+
+- `{"message": "Unknown Webhook", "code": 10015}`
+- `{"message": "Missing Permissions", "code": 50013}`
+
+It also trims whitespace around the configured webhook URL and validates that it looks like an HTTPS Discord webhook URL before sending.
