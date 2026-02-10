@@ -1,0 +1,6 @@
+# Local notifier state
+leaderboard_state.json
+.leaderboard_state.json
+
+# Cached GitHub Actions state
+.github/state/*.json

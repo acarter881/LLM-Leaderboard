@@ -21,7 +21,7 @@ from urllib import error, request
 from urllib.parse import urlparse
 
 DEFAULT_URL = "https://arena.ai/leaderboard/text/overall-no-style-control"
-DEFAULT_STATE_FILE = ".leaderboard_state.json"
+DEFAULT_STATE_FILE = "leaderboard_state.json"
 DEFAULT_TIMEOUT = 30
 DEFAULT_RETRIES = 3
 DEFAULT_RETRY_BACKOFF_SECONDS = 2.0
