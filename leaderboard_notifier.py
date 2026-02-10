@@ -9,18 +9,22 @@ import json
 import os
 import random
 import re
+import socket
 import sys
 import textwrap
 import time
 from datetime import datetime, timezone
 from html import unescape
 from pathlib import Path
+from typing import Callable, TypeVar
 from urllib import error, request
 from urllib.parse import urlparse
 
 DEFAULT_URL = "https://arena.ai/leaderboard/text/overall-no-style-control"
 DEFAULT_STATE_FILE = ".leaderboard_state.json"
 DEFAULT_TIMEOUT = 30
+DEFAULT_RETRIES = 3
+DEFAULT_RETRY_BACKOFF_SECONDS = 2.0
 DISCORD_WEBHOOK_HOSTS = ("discord.com", "discordapp.com", "ptb.discord.com", "canary.discord.com")
 DEFAULT_SNAPSHOT_TOP_N = 10
 MAX_DISCORD_MESSAGE_LENGTH = 1800
@@ -256,6 +260,49 @@ def send_discord_message(webhook_url: str, message: str, timeout: int) -> None:
             raise RuntimeError(f"Discord webhook returned HTTP {response.status}")
 
 
+def _is_timeout_error(exc: BaseException) -> bool:
+    if isinstance(exc, (TimeoutError, socket.timeout)):
+        return True
+    if isinstance(exc, error.URLError):
+        return isinstance(getattr(exc, "reason", None), (TimeoutError, socket.timeout))
+    return False
+
+
+def _is_retryable_network_error(exc: BaseException) -> bool:
+    if _is_timeout_error(exc):
+        return True
+    if isinstance(exc, error.HTTPError):
+        return 500 <= exc.code < 600
+    if isinstance(exc, error.URLError):
+        return True
+    return False
+
+
+T = TypeVar("T")
+
+
+def run_with_retries(
+    operation_name: str,
+    operation: Callable[[], T],
+    retries: int,
+    retry_backoff_seconds: float,
+) -> T:
+    max_attempts = retries + 1
+    for attempt in range(1, max_attempts + 1):
+        try:
+            return operation()
+        except Exception as exc:
+            retryable = _is_retryable_network_error(exc)
+            if not retryable or attempt == max_attempts:
+                raise
+            backoff = retry_backoff_seconds * (2 ** (attempt - 1))
+            print(
+                f"Retrying {operation_name} (attempt {attempt}/{max_attempts}) after {backoff:.1f}s: {exc}",
+                file=sys.stderr,
+            )
+            time.sleep(backoff)
+
+
 def build_message(
     url: str,
     old_hash: str | None,
@@ -345,6 +392,21 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT, help="HTTP timeout in seconds")
     parser.add_argument(
+        "--retries",
+        type=int,
+        default=DEFAULT_RETRIES,
+        help=f"Number of retries for temporary network failures (default: {DEFAULT_RETRIES})",
+    )
+    parser.add_argument(
+        "--retry-backoff-seconds",
+        type=float,
+        default=DEFAULT_RETRY_BACKOFF_SECONDS,
+        help=(
+            "Base backoff in seconds between retries; doubles each retry "
+            f"(default: {DEFAULT_RETRY_BACKOFF_SECONDS})"
+        ),
+    )
+    parser.add_argument(
         "--force-send",
         action="store_true",
         help="Send Discord notification even if no change is detected",
@@ -382,7 +444,15 @@ def parse_args() -> argparse.Namespace:
 def run_single_check(args: argparse.Namespace) -> int:
 
     try:
-        html = fetch_html(args.url, args.timeout)
+        html = run_with_retries(
+            "leaderboard fetch",
+            lambda: fetch_html(args.url, args.timeout),
+            retries=args.retries,
+            retry_backoff_seconds=args.retry_backoff_seconds,
+        )
+    except error.HTTPError as exc:
+        print(f"Failed to fetch leaderboard page: HTTP {exc.code} {exc.reason}", file=sys.stderr)
+        return 1
     except error.URLError as exc:
         print(f"Failed to fetch leaderboard page: {exc}", file=sys.stderr)
         return 1
@@ -423,7 +493,12 @@ def run_single_check(args: argparse.Namespace) -> int:
             print(message)
         else:
             try:
-                send_discord_message(args.webhook_url, message, args.timeout)
+                run_with_retries(
+                    "Discord message send",
+                    lambda: send_discord_message(args.webhook_url, message, args.timeout),
+                    retries=args.retries,
+                    retry_backoff_seconds=args.retry_backoff_seconds,
+                )
             except error.HTTPError as exc:
                 details = ""
                 try:
@@ -465,6 +540,12 @@ def main() -> int:
 
     if args.min_interval_seconds < 0 or args.max_interval_seconds < 0:
         print("Error: interval values must be non-negative", file=sys.stderr)
+        return 2
+    if args.retries < 0:
+        print("Error: --retries must be non-negative", file=sys.stderr)
+        return 2
+    if args.retry_backoff_seconds < 0:
+        print("Error: --retry-backoff-seconds must be non-negative", file=sys.stderr)
         return 2
     if args.min_interval_seconds > args.max_interval_seconds:
         print("Error: --min-interval-seconds cannot be greater than --max-interval-seconds", file=sys.stderr)
