@@ -312,6 +312,21 @@ def build_message(
     return bound_message_length("\n".join(sections), url)
 
 
+def build_force_send_no_change_message(url: str, existing_hash: str | None) -> str:
+    timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
+    hash_display = existing_hash[:12] if existing_hash else "(none)"
+    message = textwrap.dedent(
+        f"""
+        🔔 Arena leaderboard force-send test.
+        URL: {url}
+        No leaderboard change was detected for this check.
+        Current fingerprint: {hash_display}
+        Checked at: {timestamp}
+        """
+    ).strip()
+    return bound_message_length(message, url)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Check Arena leaderboard page for updates and notify Discord webhook."
@@ -391,15 +406,18 @@ def run_single_check(args: argparse.Namespace) -> int:
     should_send = args.force_send or changed
 
     if should_send:
-        use_legacy_hash_message = old_hash is not None and old_snapshot is None
-        message = build_message(
-            args.url,
-            old_hash,
-            new_hash,
-            previous_snapshot=old_snapshot,
-            current_snapshot=current_snapshot,
-            use_legacy_hash_message=use_legacy_hash_message,
-        )
+        if args.force_send and not changed:
+            message = build_force_send_no_change_message(args.url, new_hash)
+        else:
+            use_legacy_hash_message = old_hash is not None and old_snapshot is None
+            message = build_message(
+                args.url,
+                old_hash,
+                new_hash,
+                previous_snapshot=old_snapshot,
+                current_snapshot=current_snapshot,
+                use_legacy_hash_message=use_legacy_hash_message,
+            )
         if args.dry_run:
             print("[dry-run] Would send Discord message:")
             print(message)

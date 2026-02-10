@@ -61,7 +61,7 @@ Useful options:
 
 ```bash
 python leaderboard_notifier.py --dry-run
-python leaderboard_notifier.py --force-send
+python leaderboard_notifier.py --force-send --max-checks 1
 python leaderboard_notifier.py --state-file /path/to/state.json
 python leaderboard_notifier.py --url https://arena.ai/leaderboard/text/overall-no-style-control
 python leaderboard_notifier.py --loop --min-interval-seconds 120 --max-interval-seconds 300 --max-checks 12
@@ -72,14 +72,17 @@ python leaderboard_notifier.py --loop --min-interval-seconds 120 --max-interval-
 - Test message delivery (requires `DISCORD_WEBHOOK_URL`):
 
   ```bash
-  python leaderboard_notifier.py --force-send
+  python leaderboard_notifier.py --force-send --max-checks 1
   ```
 
 - Test hashing/change detection without posting to Discord:
 
   ```bash
-  python leaderboard_notifier.py --dry-run --force-send
+  python leaderboard_notifier.py --dry-run --force-send --max-checks 1
   ```
+
+
+When `--force-send` is used and no change is detected, the script now sends a clearly labeled force-send test message instead of a diff-style change report.
 
 - In GitHub Actions, run the workflow manually and set:
   - `force_send: true` to verify Discord delivery using your repository secret.
