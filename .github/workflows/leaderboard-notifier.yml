@@ -20,7 +20,9 @@ permissions:
   contents: read
 
 env:
-  STATE_FILE: .github/state/leaderboard_state.json
+  LEADERBOARD_STATE_FILE: .github/state/leaderboard_state.json
+  CHANGELOG_STATE_FILE: .github/state/changelog_state.json
+  CHANGELOG_URL: https://arena.ai/blog/leaderboard-changelog/
 
 jobs:
   check-leaderboard:
@@ -46,7 +48,7 @@ jobs:
       - name: Ensure state directory exists
         run: mkdir -p .github/state
 
-      - name: Run leaderboard notifier
+      - name: Run leaderboard notifier checks
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           FORCE_SEND: ${{ github.event.inputs.force_send == 'true' && '--force-send' || '' }}
@@ -58,7 +60,17 @@ jobs:
           fi
 
           python leaderboard_notifier.py \
-            --state-file "$STATE_FILE" \
+            --state-file "$LEADERBOARD_STATE_FILE" \
+            --loop \
+            --min-interval-seconds 120 \
+            --max-interval-seconds 300 \
+            --max-checks "$MAX_CHECKS" \
+            $FORCE_SEND \
+            $DRY_RUN
+
+          python leaderboard_notifier.py \
+            --url "$CHANGELOG_URL" \
+            --state-file "$CHANGELOG_STATE_FILE" \
             --loop \
             --min-interval-seconds 120 \
             --max-interval-seconds 300 \
