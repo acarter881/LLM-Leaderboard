@@ -64,3 +64,19 @@ python leaderboard_notifier.py --url https://arena.ai/leaderboard/text/overall-n
 - In GitHub Actions, run the workflow manually and set:
   - `force_send: true` to verify Discord delivery using your repository secret.
   - `dry_run: true` to verify logic without sending a message.
+
+## Troubleshooting
+
+### `Failed to send Discord message: HTTP Error 403: Forbidden`
+
+If your workflow reaches `Run leaderboard notifier` and fails with HTTP 403, the GitHub Actions setup is usually fine and the request is reaching Discord. A 403 response means the webhook URL itself is being rejected.
+
+Check the following:
+
+1. **Secret name matches exactly**: `DISCORD_WEBHOOK_URL` (already correct in this repo and workflow).
+2. **Secret value is the full Discord webhook URL** from your channel's **Integrations → Webhooks** page.
+3. **Webhook is still active** (not deleted/regenerated).
+4. **No extra characters** were copied into the secret (spaces/newlines/quotes).
+5. **Run once with** `force_send: true` and `dry_run: false` to verify delivery.
+
+Tip: if this still returns 403, regenerate the Discord webhook and update the repository secret with the newly generated URL.
