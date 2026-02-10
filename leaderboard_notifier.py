@@ -22,6 +22,8 @@ DEFAULT_URL = "https://arena.ai/leaderboard/text/overall-no-style-control"
 DEFAULT_STATE_FILE = ".leaderboard_state.json"
 DEFAULT_TIMEOUT = 30
 DISCORD_WEBHOOK_HOSTS = ("discord.com", "discordapp.com", "ptb.discord.com", "canary.discord.com")
+DEFAULT_SNAPSHOT_TOP_N = 10
+MAX_DISCORD_MESSAGE_LENGTH = 1800
 
 
 def fetch_html(url: str, timeout: int) -> str:
@@ -97,6 +99,125 @@ def compute_hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def _strip_html(value: str) -> str:
+    stripped = re.sub(r"<[^>]+>", " ", value)
+    stripped = unescape(stripped)
+    return re.sub(r"\s+", " ", stripped).strip()
+
+
+def _parse_rank(cell: str) -> int | None:
+    match = re.search(r"\d+", cell)
+    if not match:
+        return None
+    try:
+        return int(match.group(0))
+    except ValueError:
+        return None
+
+
+def _parse_score(cell: str) -> float | None:
+    match = re.search(r"-?\d+(?:\.\d+)?", cell.replace(",", ""))
+    if not match:
+        return None
+    try:
+        return float(match.group(0))
+    except ValueError:
+        return None
+
+
+def parse_leaderboard_snapshot(html: str, top_n: int = DEFAULT_SNAPSHOT_TOP_N) -> list[dict]:
+    snapshots: list[dict] = []
+    for row_html in re.findall(r"<tr\b[^>]*>.*?</tr>", html, flags=re.I | re.S):
+        cells_raw = re.findall(r"<t[dh]\b[^>]*>(.*?)</t[dh]>", row_html, flags=re.I | re.S)
+        cells = [_strip_html(cell) for cell in cells_raw]
+        cells = [cell for cell in cells if cell]
+        if len(cells) < 2:
+            continue
+
+        rank = _parse_rank(cells[0])
+        if rank is None:
+            continue
+
+        model_name = cells[1]
+        if not model_name or model_name.strip().lower() == "model":
+            continue
+
+        score = None
+        for cell in cells[2:]:
+            score = _parse_score(cell)
+            if score is not None:
+                break
+
+        entry = {"rank": rank, "model": model_name}
+        if score is not None:
+            entry["score"] = score
+        snapshots.append(entry)
+
+    snapshots.sort(key=lambda item: item["rank"])
+    return snapshots[:top_n]
+
+
+def format_score(value: float | int | None) -> str:
+    if value is None:
+        return "?"
+    return f"{value:.2f}".rstrip("0").rstrip(".")
+
+
+def diff_snapshots(previous: list[dict], current: list[dict]) -> dict[str, list[str]]:
+    previous_by_model = {row["model"]: row for row in previous}
+    current_by_model = {row["model"]: row for row in current}
+
+    new_entries: list[str] = []
+    rank_movements: list[str] = []
+    score_deltas: list[str] = []
+
+    for row in current:
+        previous_row = previous_by_model.get(row["model"])
+        if previous_row is None:
+            score_part = f" (score {format_score(row.get('score'))})" if row.get("score") is not None else ""
+            new_entries.append(f"#{row['rank']} {row['model']}{score_part}")
+            continue
+
+        rank_delta = previous_row["rank"] - row["rank"]
+        if rank_delta != 0:
+            direction = "↑" if rank_delta > 0 else "↓"
+            rank_movements.append(
+                f"{direction} {row['model']}: #{previous_row['rank']} → #{row['rank']}"
+            )
+
+        previous_score = previous_row.get("score")
+        current_score = row.get("score")
+        if previous_score is None or current_score is None:
+            continue
+        delta = float(current_score) - float(previous_score)
+        if abs(delta) < 1e-9:
+            continue
+        sign = "+" if delta > 0 else ""
+        score_deltas.append(
+            f"{row['model']}: {format_score(previous_score)} → {format_score(current_score)} ({sign}{delta:.2f})"
+        )
+
+    for model, previous_row in previous_by_model.items():
+        if model in current_by_model:
+            continue
+        rank_movements.append(f"↘ {model}: dropped from top {len(current)}")
+
+    return {
+        "new_entries": new_entries,
+        "rank_movements": rank_movements,
+        "score_deltas": score_deltas,
+    }
+
+
+def bound_message_length(message: str, url: str, max_length: int = MAX_DISCORD_MESSAGE_LENGTH) -> str:
+    if len(message) <= max_length:
+        return message
+    suffix = f"\n… (truncated for Discord limits; see URL: {url})"
+    allowed = max(0, max_length - len(suffix))
+    trimmed = message[:allowed].rstrip()
+    return f"{trimmed}{suffix}"
+
+
 def load_state(path: Path) -> dict:
     if not path.exists():
         return {}
@@ -135,18 +256,60 @@ def send_discord_message(webhook_url: str, message: str, timeout: int) -> None:
             raise RuntimeError(f"Discord webhook returned HTTP {response.status}")
 
 
-def build_message(url: str, old_hash: str | None, new_hash: str) -> str:
+def build_message(
+    url: str,
+    old_hash: str | None,
+    new_hash: str,
+    previous_snapshot: list[dict] | None = None,
+    current_snapshot: list[dict] | None = None,
+    use_legacy_hash_message: bool = False,
+) -> str:
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     old_display = old_hash[:12] if old_hash else "(none)"
-    return textwrap.dedent(
-        f"""
-        🔔 Arena leaderboard update detected.
-        URL: {url}
-        Previous fingerprint: {old_display}
-        New fingerprint: {new_hash[:12]}
-        Checked at: {timestamp}
-        """
-    ).strip()
+
+    if use_legacy_hash_message or previous_snapshot is None or current_snapshot is None:
+        message = textwrap.dedent(
+            f"""
+            🔔 Arena leaderboard update detected.
+            URL: {url}
+            Previous fingerprint: {old_display}
+            New fingerprint: {new_hash[:12]}
+            Checked at: {timestamp}
+            """
+        ).strip()
+        return bound_message_length(message, url)
+
+    diffs = diff_snapshots(previous_snapshot, current_snapshot)
+    sections = [
+        "🔔 Arena leaderboard update detected.",
+        f"URL: {url}",
+        f"Top {len(current_snapshot)} snapshot changes:",
+    ]
+
+    if diffs["new_entries"]:
+        sections.append("New entries:")
+        sections.extend(f"- {line}" for line in diffs["new_entries"])
+
+    if diffs["rank_movements"]:
+        sections.append("Rank movements:")
+        sections.extend(f"- {line}" for line in diffs["rank_movements"])
+
+    if diffs["score_deltas"]:
+        sections.append("Score deltas:")
+        sections.extend(f"- {line}" for line in diffs["score_deltas"])
+
+    if not diffs["new_entries"] and not diffs["rank_movements"] and not diffs["score_deltas"]:
+        sections.append("No top-rank snapshot differences found (page fingerprint changed).")
+
+    sections.extend(
+        [
+            f"Previous fingerprint: {old_display}",
+            f"New fingerprint: {new_hash[:12]}",
+            f"Checked at: {timestamp}",
+        ]
+    )
+
+    return bound_message_length("\n".join(sections), url)
 
 
 def parse_args() -> argparse.Namespace:
@@ -211,9 +374,13 @@ def run_single_check(args: argparse.Namespace) -> int:
 
     normalized = normalize_html_for_hash(html)
     new_hash = compute_hash(normalized)
+    current_snapshot = parse_leaderboard_snapshot(html)
 
     state = load_state(args.state_file)
     old_hash = state.get("hash")
+    old_snapshot = state.get("snapshot")
+    if not isinstance(old_snapshot, list):
+        old_snapshot = None
     changed = old_hash != new_hash
 
     if changed:
@@ -224,7 +391,15 @@ def run_single_check(args: argparse.Namespace) -> int:
     should_send = args.force_send or changed
 
     if should_send:
-        message = build_message(args.url, old_hash, new_hash)
+        use_legacy_hash_message = old_hash is not None and old_snapshot is None
+        message = build_message(
+            args.url,
+            old_hash,
+            new_hash,
+            previous_snapshot=old_snapshot,
+            current_snapshot=current_snapshot,
+            use_legacy_hash_message=use_legacy_hash_message,
+        )
         if args.dry_run:
             print("[dry-run] Would send Discord message:")
             print(message)
@@ -254,6 +429,8 @@ def run_single_check(args: argparse.Namespace) -> int:
         {
             "url": args.url,
             "hash": new_hash,
+            "snapshot_top_n": DEFAULT_SNAPSHOT_TOP_N,
+            "snapshot": current_snapshot,
             "last_checked_utc": datetime.now(timezone.utc).isoformat(),
         }
     )
