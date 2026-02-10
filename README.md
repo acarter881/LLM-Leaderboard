@@ -1,6 +1,9 @@
 # LLM-Leaderboard
 
-Monitor the [Arena LLM leaderboard](https://arena.ai/leaderboard/text/overall-no-style-control) and send a message to a Discord channel when the page content changes.
+Monitor official Arena update sources and send a message to a Discord channel when page content changes:
+
+- [Arena LLM leaderboard](https://arena.ai/leaderboard/text/overall-no-style-control)
+- [Arena leaderboard changelog](https://arena.ai/blog/leaderboard-changelog/)
 
 ## Cloud-only setup (GitHub Actions)
 
@@ -44,14 +47,16 @@ Tradeoff: each run stays alive longer, which increases GitHub Actions runtime/mi
 
 GitHub runners are ephemeral, so the workflow saves and restores the state file using the GitHub Actions cache:
 
-- State path: `.github/state/leaderboard_state.json`
+- State paths:
+  - `.github/state/leaderboard_state.json`
+  - `.github/state/changelog_state.json`
 - Cache prefix: `leaderboard-state-`
 
 This keeps change detection consistent between scheduled runs without any local machine.
 
 ## Script details
 
-`leaderboard_notifier.py` checks the leaderboard page, hashes normalized page text, compares it with the previous hash from a state file, and sends a Discord webhook message when a change is detected. To reduce noisy flip-flop alerts from transient upstream variants, a new fingerprint must be seen for consecutive checks before it is announced.
+`leaderboard_notifier.py` checks a target page URL, hashes normalized page text, compares it with the previous hash from a state file, and sends a Discord webhook message when a change is detected. In GitHub Actions, this script is run for both the leaderboard page and the official leaderboard changelog URL above. To reduce noisy flip-flop alerts from transient upstream variants, a new fingerprint must be seen for consecutive checks before it is announced.
 
 When run locally, the notifier automatically creates `leaderboard_state.json` in the repository root (or at the path you pass via `--state-file`) after the first successful check.
 
