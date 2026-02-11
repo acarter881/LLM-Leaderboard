@@ -104,6 +104,16 @@ def compute_hash(value: str) -> str:
     return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
 
+def is_leaderboard_url(url: str) -> bool:
+    parsed = urlparse(url)
+    path = (parsed.path or "").lower()
+    return re.search(r"(?:^|/)leaderboard(?:/|$)", path) is not None
+
+
+def page_subject(url: str) -> str:
+    return "leaderboard" if is_leaderboard_url(url) else "tracked page"
+
+
 def _strip_html(value: str) -> str:
     stripped = re.sub(r"<[^>]+>", " ", value)
     stripped = unescape(stripped)
@@ -314,11 +324,12 @@ def build_message(
 ) -> str:
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     old_display = old_hash[:12] if old_hash else "(none)"
+    subject = page_subject(url)
 
     if use_legacy_hash_message or previous_snapshot is None or current_snapshot is None:
         message = textwrap.dedent(
             f"""
-            🔔 Arena leaderboard update detected.
+            🔔 Arena {subject} update detected.
             URL: {url}
             Previous fingerprint: {old_display}
             New fingerprint: {new_hash[:12]}
@@ -329,7 +340,7 @@ def build_message(
 
     diffs = diff_snapshots(previous_snapshot, current_snapshot)
     sections = [
-        "🔔 Arena leaderboard update detected.",
+        f"🔔 Arena {subject} update detected.",
         f"URL: {url}",
         f"Top {len(current_snapshot)} snapshot changes:",
     ]
@@ -363,11 +374,12 @@ def build_message(
 def build_force_send_no_change_message(url: str, existing_hash: str | None) -> str:
     timestamp = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
     hash_display = existing_hash[:12] if existing_hash else "(none)"
+    subject = page_subject(url)
     message = textwrap.dedent(
         f"""
-        🔔 Arena leaderboard force-send test.
+        🔔 Arena {subject} force-send test.
         URL: {url}
-        No leaderboard change was detected for this check.
+        No {subject} change was detected for this check.
         Current fingerprint: {hash_display}
         Checked at: {timestamp}
         """
@@ -469,7 +481,7 @@ def run_single_check(args: argparse.Namespace) -> int:
 
     normalized = normalize_html_for_hash(html)
     new_hash = compute_hash(normalized)
-    current_snapshot = parse_leaderboard_snapshot(html)
+    current_snapshot = parse_leaderboard_snapshot(html) if is_leaderboard_url(args.url) else None
 
     state = load_state(args.state_file)
     old_hash = state.get("hash")
@@ -514,15 +526,15 @@ def run_single_check(args: argparse.Namespace) -> int:
             state.pop("pending_count", None)
 
     if changed:
-        print("Leaderboard content changed.")
+        print(f"{page_subject(args.url).capitalize()} content changed.")
     else:
         if old_hash != new_hash:
             print(
-                "Observed a new leaderboard fingerprint but waiting for confirmation "
+                f"Observed a new {page_subject(args.url)} fingerprint but waiting for confirmation "
                 f"({pending_count}/{args.confirmation_checks})."
             )
         else:
-            print("No leaderboard change detected.")
+            print(f"No {page_subject(args.url)} change detected.")
 
     should_send = args.force_send or changed
 
