@@ -250,10 +250,12 @@ def diff_snapshots(previous: list[dict], current: list[dict]) -> dict[str, list[
             f"{row['model']}: {format_score(previous_score)} → {format_score(current_score)} ({sign}{delta:.2f})"
         )
 
+    top_window_size = max(len(previous), len(current))
+
     for model, previous_row in previous_by_model.items():
         if model in current_by_model:
             continue
-        rank_movements.append(f"↘ {model}: dropped from top {len(current)}")
+        rank_movements.append(f"↘ {model}: dropped from top {top_window_size}")
 
     return {
         "new_entries": new_entries,
@@ -377,10 +379,12 @@ def build_message(
         return bound_message_length(message, url)
 
     diffs = diff_snapshots(previous_snapshot, current_snapshot)
+    snapshot_window_size = max(len(previous_snapshot), len(current_snapshot))
+
     sections = [
         f"🔔 Arena {subject} update detected.",
         f"URL: {url}",
-        f"Top {len(current_snapshot)} snapshot changes:",
+        f"Top {snapshot_window_size} snapshot changes:",
     ]
 
     if diffs["new_entries"]:
