@@ -64,6 +64,8 @@ To reduce false positives, hashing now focuses on a narrower leaderboard-specifi
 
 If focused extraction fails, the script falls back to whole-page normalization and prints a warning to stderr so operators can still monitor changes without silently missing checks.
 
+Snapshot parsing now also ignores rows where the "model" field is numeric-only (a common non-leaderboard table artifact), and prefers tables that explicitly contain rank/model headers. This reduces false "rank movement" alerts caused by unrelated page metadata tables.
+
 Useful options:
 
 ```bash

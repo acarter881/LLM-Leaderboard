@@ -140,9 +140,20 @@ def _parse_score(cell: str) -> float | None:
         return None
 
 
-def parse_leaderboard_snapshot(html: str, top_n: int = DEFAULT_SNAPSHOT_TOP_N) -> list[dict]:
+def _is_plausible_model_name(value: str) -> bool:
+    normalized = value.strip()
+    if not normalized:
+        return False
+    if normalized.lower() == "model":
+        return False
+    if not re.search(r"[a-z]", normalized, flags=re.I):
+        return False
+    return True
+
+
+def _parse_snapshot_rows(row_html_blocks: list[str]) -> list[dict]:
     snapshots: list[dict] = []
-    for row_html in re.findall(r"<tr\b[^>]*>.*?</tr>", html, flags=re.I | re.S):
+    for row_html in row_html_blocks:
         cells_raw = re.findall(r"<t[dh]\b[^>]*>(.*?)</t[dh]>", row_html, flags=re.I | re.S)
         cells = [_strip_html(cell) for cell in cells_raw]
         cells = [cell for cell in cells if cell]
@@ -150,11 +161,11 @@ def parse_leaderboard_snapshot(html: str, top_n: int = DEFAULT_SNAPSHOT_TOP_N) -
             continue
 
         rank = _parse_rank(cells[0])
-        if rank is None:
+        if rank is None or rank <= 0 or rank > 1000:
             continue
 
         model_name = cells[1]
-        if not model_name or model_name.strip().lower() == "model":
+        if not _is_plausible_model_name(model_name):
             continue
 
         score = None
@@ -167,9 +178,36 @@ def parse_leaderboard_snapshot(html: str, top_n: int = DEFAULT_SNAPSHOT_TOP_N) -
         if score is not None:
             entry["score"] = score
         snapshots.append(entry)
+    return snapshots
+
+
+def parse_leaderboard_snapshot(html: str, top_n: int = DEFAULT_SNAPSHOT_TOP_N) -> list[dict]:
+    table_snapshots: list[list[dict]] = []
+    for table_html in re.findall(r"<table\b[^>]*>.*?</table>", html, flags=re.I | re.S):
+        if re.search(r"\brank\b", table_html, flags=re.I) is None:
+            continue
+        if re.search(r"\bmodel\b", table_html, flags=re.I) is None:
+            continue
+        row_blocks = re.findall(r"<tr\b[^>]*>.*?</tr>", table_html, flags=re.I | re.S)
+        table_snapshot = _parse_snapshot_rows(row_blocks)
+        if table_snapshot:
+            table_snapshots.append(table_snapshot)
+
+    if table_snapshots:
+        snapshots = max(table_snapshots, key=len)
+    else:
+        row_blocks = re.findall(r"<tr\b[^>]*>.*?</tr>", html, flags=re.I | re.S)
+        snapshots = _parse_snapshot_rows(row_blocks)
 
     snapshots.sort(key=lambda item: item["rank"])
-    return snapshots[:top_n]
+    seen_ranks: set[int] = set()
+    deduplicated: list[dict] = []
+    for row in snapshots:
+        if row["rank"] in seen_ranks:
+            continue
+        seen_ranks.add(row["rank"])
+        deduplicated.append(row)
+    return deduplicated[:top_n]
 
 
 def format_score(value: float | int | None) -> str:
