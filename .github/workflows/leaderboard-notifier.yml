@@ -22,6 +22,9 @@ permissions:
 env:
   LEADERBOARD_STATE_FILE: .github/state/leaderboard_state.json
   CHANGELOG_STATE_FILE: .github/state/changelog_state.json
+  STRUCTURED_CACHE: .github/state/structured_snapshot.json
+  SNAPSHOT_DIR: data/snapshots
+  TIMESERIES_DIR: data/timeseries
   CHANGELOG_URL: https://arena.ai/blog/leaderboard-changelog/
 
 jobs:
@@ -40,13 +43,19 @@ jobs:
         id: restore-state
         uses: actions/cache/restore@v4
         with:
-          path: .github/state
+          path: |
+            .github/state
+            data/snapshots
+            data/timeseries
           key: leaderboard-state-${{ github.run_id }}
           restore-keys: |
             leaderboard-state-
 
-      - name: Ensure state directory exists
-        run: mkdir -p .github/state
+      - name: Ensure state and data directories exist
+        run: |
+          mkdir -p .github/state
+          mkdir -p "$SNAPSHOT_DIR"
+          mkdir -p "$TIMESERIES_DIR"
 
       - name: Run leaderboard notifier checks
         env:
@@ -61,6 +70,9 @@ jobs:
 
           python leaderboard_notifier.py \
             --state-file "$LEADERBOARD_STATE_FILE" \
+            --structured-cache "$STRUCTURED_CACHE" \
+            --snapshot-dir "$SNAPSHOT_DIR" \
+            --timeseries-dir "$TIMESERIES_DIR" \
             --loop \
             --min-interval-seconds 120 \
             --max-interval-seconds 300 \
@@ -71,6 +83,7 @@ jobs:
           python leaderboard_notifier.py \
             --url "$CHANGELOG_URL" \
             --state-file "$CHANGELOG_STATE_FILE" \
+            --no-structured \
             --loop \
             --min-interval-seconds 120 \
             --max-interval-seconds 300 \
@@ -82,5 +95,8 @@ jobs:
         if: always()
         uses: actions/cache/save@v4
         with:
-          path: .github/state
+          path: |
+            .github/state
+            data/snapshots
+            data/timeseries
           key: leaderboard-state-${{ github.run_id }}

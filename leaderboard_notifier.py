@@ -30,6 +30,11 @@ DISCORD_WEBHOOK_HOSTS = ("discord.com", "discordapp.com", "ptb.discord.com", "ca
 DEFAULT_SNAPSHOT_TOP_N = 10
 MAX_DISCORD_MESSAGE_LENGTH = 1800
 
+# Structured time-series defaults
+DEFAULT_SNAPSHOT_DIR = "data/snapshots"
+DEFAULT_TIMESERIES_DIR = "data/timeseries"
+DEFAULT_STRUCTURED_CACHE = ".github/state/structured_snapshot.json"
+
 
 def fetch_html(url: str, timeout: int) -> str:
     req = request.Request(
@@ -502,6 +507,29 @@ def parse_args() -> argparse.Namespace:
         type=int,
         help="Optional cap on number of checks when --loop is enabled",
     )
+    parser.add_argument(
+        "--snapshot-dir",
+        type=Path,
+        default=Path(DEFAULT_SNAPSHOT_DIR),
+        help=f"Directory for full JSON snapshots (default: {DEFAULT_SNAPSHOT_DIR})",
+    )
+    parser.add_argument(
+        "--timeseries-dir",
+        type=Path,
+        default=Path(DEFAULT_TIMESERIES_DIR),
+        help=f"Directory for JSONL time series (default: {DEFAULT_TIMESERIES_DIR})",
+    )
+    parser.add_argument(
+        "--structured-cache",
+        type=Path,
+        default=Path(DEFAULT_STRUCTURED_CACHE),
+        help=f"Cache path for latest structured snapshot (default: {DEFAULT_STRUCTURED_CACHE})",
+    )
+    parser.add_argument(
+        "--no-structured",
+        action="store_true",
+        help="Disable structured parsing (hash-only mode)",
+    )
     return parser.parse_args()
 
 
@@ -524,6 +552,25 @@ def run_single_check(args: argparse.Namespace) -> int:
     normalized = normalize_html_for_hash(html)
     new_hash = compute_hash(normalized)
     current_snapshot = parse_leaderboard_snapshot(html) if is_leaderboard_url(args.url) else None
+
+    # --- Structured parsing (runs alongside hash detection) ---
+    structured_snapshot = None
+    structured_diff = None
+    use_structured = is_leaderboard_url(args.url) and not getattr(args, "no_structured", False)
+
+    if use_structured:
+        try:
+            from leaderboard_parser import safe_parse_html
+            from snapshot_store import store_snapshot, load_from_cache
+            from snapshot_diff import compute_diff, has_changes, format_discord_message, format_diff_summary
+
+            structured_snapshot = safe_parse_html(html)
+            if structured_snapshot:
+                model_count = len(structured_snapshot.get("models", []))
+                print(f"Structured parser: extracted {model_count} models.")
+        except ImportError as exc:
+            print(f"Warning: structured parsing modules not available: {exc}", file=sys.stderr)
+            use_structured = False
 
     state = load_state(args.state_file)
     old_hash = state.get("hash")
@@ -578,21 +625,55 @@ def run_single_check(args: argparse.Namespace) -> int:
         else:
             print(f"No {page_subject(args.url)} change detected.")
 
+    # --- Structured diff & storage ---
+    if use_structured and structured_snapshot:
+        try:
+            previous_structured = load_from_cache(args.structured_cache)
+
+            if changed or previous_structured is None:
+                # Compute structured diff
+                if previous_structured:
+                    structured_diff = compute_diff(previous_structured, structured_snapshot)
+                    summary = format_diff_summary(structured_diff)
+                    print(f"Structured diff: {summary}")
+
+                # Store snapshot and update time series
+                store_result = store_snapshot(
+                    structured_snapshot,
+                    previous_snapshot=previous_structured,
+                    snapshot_dir=args.snapshot_dir,
+                    timeseries_dir=args.timeseries_dir,
+                    cache_path=args.structured_cache,
+                    only_on_change=True,
+                )
+                if store_result.get("snapshot_path"):
+                    print(f"Snapshot saved: {store_result['snapshot_path']}")
+            else:
+                # No change confirmed — still update cache for freshness
+                from snapshot_store import save_latest_for_cache
+                save_latest_for_cache(structured_snapshot, args.structured_cache)
+        except Exception as exc:
+            print(f"Warning: structured storage/diff failed: {exc}", file=sys.stderr)
+
     should_send = args.force_send or changed
 
     if should_send:
         if args.force_send and not changed:
             message = build_force_send_no_change_message(args.url, new_hash)
         else:
-            use_legacy_hash_message = old_hash is not None and old_snapshot is None
-            message = build_message(
-                args.url,
-                effective_old_hash,
-                new_hash,
-                previous_snapshot=effective_old_snapshot,
-                current_snapshot=current_snapshot,
-                use_legacy_hash_message=use_legacy_hash_message,
-            )
+            # Use rich structured diff message if available
+            if use_structured and structured_diff and has_changes(structured_diff):
+                message = format_discord_message(structured_diff, args.url)
+            else:
+                use_legacy_hash_message = old_hash is not None and old_snapshot is None
+                message = build_message(
+                    args.url,
+                    effective_old_hash,
+                    new_hash,
+                    previous_snapshot=effective_old_snapshot,
+                    current_snapshot=current_snapshot,
+                    use_legacy_hash_message=use_legacy_hash_message,
+                )
         if args.dry_run:
             print("[dry-run] Would send Discord message:")
             print(message)
