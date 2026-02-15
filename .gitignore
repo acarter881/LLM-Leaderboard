@@ -4,3 +4,7 @@ leaderboard_state.json
 
 # Cached GitHub Actions state
 .github/state/*.json
+
+# Snapshot data (stored separately; kept out of main repo history)
+data/snapshots/
+data/timeseries/
