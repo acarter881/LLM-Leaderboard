@@ -5,6 +5,8 @@ Monitor official Arena update sources and send a message to a Discord channel wh
 - [Arena LLM leaderboard](https://arena.ai/leaderboard/text/overall-no-style-control)
 - [Arena leaderboard changelog](https://arena.ai/blog/leaderboard-changelog/)
 
+In addition to detecting *that* the leaderboard changed, the structured time series system extracts *what* changed — rank movements, Elo score deltas, confidence interval shifts, vote accumulation, and new model arrivals — and stores historical snapshots for analysis.
+
 ## Cloud-only setup (GitHub Actions)
 
 This repository is configured to run **entirely in GitHub Actions** so you do not need to run the notifier locally.
@@ -45,14 +47,88 @@ Tradeoff: each run stays alive longer, which increases GitHub Actions runtime/mi
 
 ### 3) State persistence in the cloud
 
-GitHub runners are ephemeral, so the workflow saves and restores the state file using the GitHub Actions cache:
+GitHub runners are ephemeral, so the workflow saves and restores state using the GitHub Actions cache:
 
 - State paths:
-  - `.github/state/leaderboard_state.json`
-  - `.github/state/changelog_state.json`
+  - `.github/state/leaderboard_state.json` — hash-based change detection state
+  - `.github/state/changelog_state.json` — changelog change detection state
+  - `.github/state/structured_snapshot.json` — latest structured snapshot (used for diffing)
+- Data paths (also cached):
+  - `data/snapshots/` — full gzipped JSON snapshots (one per detected change)
+  - `data/timeseries/top20.jsonl` — append-only compact time series for top 20 models
 - Cache prefix: `leaderboard-state-`
 
-This keeps change detection consistent between scheduled runs without any local machine.
+This keeps change detection and historical data consistent between scheduled runs without any local machine.
+
+## Architecture
+
+The system has two layers that run alongside each other:
+
+1. **Hash-based change detection** (`leaderboard_notifier.py`) — fast, reliable signal that *something* changed. Normalizes page HTML, hashes it, compares to cached state. This is the primary trigger for notifications.
+
+2. **Structured time series** — when a change is detected, the structured parser extracts detailed data and computes a diff showing *what* changed. This adds context to notifications and builds a historical record.
+
+### Module overview
+
+| Module | Purpose |
+|--------|---------|
+| `leaderboard_notifier.py` | Entrypoint. Hash-based detection + orchestration |
+| `leaderboard_parser.py` | HTML → structured data. Rank spread parsing |
+| `snapshot_store.py` | JSON snapshot files, JSONL time series, cache I/O |
+| `snapshot_diff.py` | Structured diffs between snapshots, Discord formatting |
+| `analytics.py` | CLI tool to query historical time series data |
+
+### Structured data extracted per model
+
+| Field | Example | Notes |
+|-------|---------|-------|
+| `rank` | `1` | Integer position in table |
+| `rank_ub` | `1` | Rank upper bound (primary settlement criterion) |
+| `rank_lb` | `2` | Rank lower bound |
+| `rank_spread_raw` | `"12"` | Raw concatenated rank CI from the page |
+| `model_name` | `"claude-opus-4-6-thinking"` | Model identifier |
+| `organization` | `"Anthropic"` | Company/org if available |
+| `license` | `"Proprietary"` | License type |
+| `score` | `1504` | Arena/Elo score |
+| `ci` | `10` | ± confidence interval on score |
+| `votes` | `3922` | Number of votes/battles |
+| `is_preliminary` | `false` | Whether model has "Preliminary" tag |
+| `model_url` | `"https://..."` | Link from model name |
+
+### Rank spread parsing
+
+The Arena leaderboard encodes rank confidence interval bounds as a single concatenated number with no delimiter. For example, `1634` means rank UB = 16, rank LB = 34.
+
+The parser tries every possible split position and scores each candidate based on CI width and distance from the model's actual rank. Narrow CIs that contain the model rank are preferred. A small overshoot (rank slightly outside the CI) is tolerated over an absurdly wide exact-fit CI.
+
+Examples:
+
+| Raw | Rank UB | Rank LB |
+|-----|---------|---------|
+| `12` | 1 | 2 |
+| `615` | 6 | 15 |
+| `1634` | 16 | 34 |
+| `74104` | 74 | 104 |
+| `304305` | 304 | 305 |
+
+### Diff detection
+
+When a change is confirmed, the diff engine compares the previous and current structured snapshots and detects:
+
+- New models added / models removed
+- Rank changes (model moved up or down)
+- **Rank UB changes** (settlement-critical, highlighted in Discord notifications)
+- Score changes (with delta)
+- CI changes (widened or narrowed)
+- Vote count changes (with delta)
+- Preliminary status changes
+- Leaderboard date refreshes
+
+### Storage
+
+- **Full snapshots**: `data/snapshots/YYYYMMDD_HHMMSS.json.gz` — gzipped JSON (~5x compression). Only stored when data actually changed.
+- **Top-20 time series**: `data/timeseries/top20.jsonl` — one JSON line appended per snapshot with compact model data.
+- Both directories are persisted via GitHub Actions cache between runs.
 
 ## Script details
 
@@ -60,11 +136,11 @@ This keeps change detection consistent between scheduled runs without any local 
 
 When run locally, the notifier automatically creates `leaderboard_state.json` in the repository root (or at the path you pass via `--state-file`) after the first successful check.
 
-To reduce false positives, hashing now focuses on a narrower leaderboard-specific HTML region identified by stable anchors (for example leaderboard title text, leaderboard container markers, and common table section labels). During normalization, dynamic or non-semantic content (timestamps, tracking-related snippets, and broad nav/footer/aside regions) is stripped before whitespace collapsing and HTML unescaping.
+To reduce false positives, hashing focuses on a narrower leaderboard-specific HTML region identified by stable anchors (for example leaderboard title text, leaderboard container markers, and common table section labels). During normalization, dynamic or non-semantic content (timestamps, tracking-related snippets, and broad nav/footer/aside regions) is stripped before whitespace collapsing and HTML unescaping.
 
 If focused extraction fails, the script falls back to whole-page normalization and prints a warning to stderr so operators can still monitor changes without silently missing checks.
 
-Snapshot parsing now also ignores rows where the "model" field is numeric-only (a common non-leaderboard table artifact), and prefers tables that explicitly contain rank/model headers. This reduces false "rank movement" alerts caused by unrelated page metadata tables.
+Snapshot parsing also ignores rows where the "model" field is numeric-only (a common non-leaderboard table artifact), and prefers tables that explicitly contain rank/model headers. This reduces false "rank movement" alerts caused by unrelated page metadata tables.
 
 Useful options:
 
@@ -76,6 +152,8 @@ python leaderboard_notifier.py --url https://arena.ai/leaderboard/text/overall-n
 python leaderboard_notifier.py --loop --min-interval-seconds 120 --max-interval-seconds 300 --max-checks 12
 python leaderboard_notifier.py --retries 3 --retry-backoff-seconds 2
 python leaderboard_notifier.py --confirmation-checks 2
+python leaderboard_notifier.py --no-structured  # hash-only mode, no structured parsing
+python leaderboard_notifier.py --snapshot-dir ./my-snapshots --timeseries-dir ./my-timeseries
 ```
 
 ### Quick testing checklist
@@ -113,6 +191,42 @@ CLI flags:
 - `--retries` (default: `3`) — number of retry attempts after the initial request fails.
 - `--retry-backoff-seconds` (default: `2`) — base backoff delay in seconds; each retry doubles the delay.
 - `--confirmation-checks` (default: `2`) — number of consecutive checks that must observe a new fingerprint before notification.
+
+## Analytics CLI
+
+`analytics.py` provides subcommands for querying the stored time series data:
+
+```bash
+# Vote accumulation rate for a model over the last 7 days
+python analytics.py vote-rate claude-opus-4-6-thinking --days 7
+
+# When did a model's CI drop below ±5?
+python analytics.py ci-threshold claude-opus-4-6-thinking --threshold 5
+
+# Elo score trajectory for the top 5 models over 30 days
+python analytics.py score-trajectory --top-n 5 --days 30
+
+# Specific models
+python analytics.py score-trajectory --models claude-opus-4-6-thinking gpt-4.5 --days 14
+
+# Which models changed Rank UB in the last 7 days?
+python analytics.py rank-ub-changes --days 7
+
+# How long has the current #1 held the top position?
+python analytics.py days-at-top
+```
+
+All subcommands read from the JSONL time series file. Use `--timeseries-dir` to point at a custom directory.
+
+## Tests
+
+Run the full test suite:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Tests cover rank spread parsing (all documented examples), HTML table parsing, structured diff logic, snapshot storage round-trips, and Discord message formatting.
 
 ## Troubleshooting
 
