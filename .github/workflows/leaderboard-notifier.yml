@@ -111,7 +111,10 @@ jobs:
           if ! git diff --cached --quiet; then
             TIMESTAMP=$(date -u '+%Y-%m-%d %H:%M UTC')
             git commit -m "data: snapshot update ${TIMESTAMP}"
-            git pull --rebase origin main
+            git pull --rebase -X theirs origin main || {
+              echo "Rebase conflict — resolving by accepting workflow data."
+              git checkout --theirs . && git add -A && git rebase --continue
+            }
             git push
           else
             echo "No snapshot data changes to commit."
