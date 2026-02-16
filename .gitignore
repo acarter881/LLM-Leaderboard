@@ -6,9 +6,7 @@ __pycache__/
 leaderboard_state.json
 .leaderboard_state.json
 
-# Cached GitHub Actions state
-.github/state/*.json
-
-# Snapshot data (stored separately; kept out of main repo history)
-data/snapshots/
-data/timeseries/
+# Cached GitHub Actions state (structured_snapshot.json is committed for
+# persistence; other state files remain ignored)
+.github/state/leaderboard_state.json
+.github/state/changelog_state.json
