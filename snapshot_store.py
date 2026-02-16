@@ -136,11 +136,26 @@ def append_top_n(
             compact["rank_ub"] = m["rank_ub"]
         top_models.append(compact)
 
-    record = {
+    # Include top overtake probabilities if available.
+    overtake = snapshot.get("overtake")
+    overtake_compact: list[dict] = []
+    if overtake and overtake.get("overtake_probabilities"):
+        for entry in overtake["overtake_probabilities"][:5]:
+            overtake_compact.append({
+                "name": entry.get("model_name"),
+                "prob": round(entry.get("overtake_prob", 0), 6),
+                "gap": entry.get("score_gap"),
+            })
+
+    record: dict = {
         "ts": snapshot.get("timestamp"),
         "date": snapshot.get("leaderboard_date"),
         "models": top_models,
     }
+    if overtake_compact:
+        record["overtake_top5"] = overtake_compact
+    if overtake and overtake.get("leader"):
+        record["leader_prob_staying_1"] = overtake["leader"].get("prob_staying_1")
 
     line = json.dumps(record, ensure_ascii=False) + "\n"
     with open(filepath, "a", encoding="utf-8") as f:
@@ -225,6 +240,13 @@ def store_snapshot(
     """
     changed = _snapshots_differ(previous_snapshot, snapshot) if previous_snapshot else True
     result: dict = {"changed": changed}
+
+    # Enrich snapshot with overtake probabilities before storing.
+    try:
+        from overtake_probability import enrich_snapshot
+        enrich_snapshot(snapshot)
+    except Exception as exc:
+        print(f"Warning: overtake probability enrichment failed: {exc}", file=sys.stderr)
 
     # Always update the cache (needed for next diff comparison)
     if cache_path:
