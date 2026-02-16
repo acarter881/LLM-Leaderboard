@@ -163,11 +163,15 @@ def format_discord_message(
     diff: dict,
     url: str,
     top_n: int = 10,
+    overtake_data: dict | None = None,
 ) -> str:
     """Format a structured diff as a rich Discord notification.
 
     Focuses on the top *top_n* models for rank/score details and always
     highlights Rank UB changes (settlement-critical).
+
+    If *overtake_data* (output of ``compute_all_overtake_probabilities``)
+    is provided, an overtake-probability section is appended.
     """
     sections: list[str] = []
     sections.append("**Arena Leaderboard Update**")
@@ -273,6 +277,16 @@ def format_discord_message(
             sections.append("")
             sections.append(f"Total new votes across all tracked models: +{total_new_votes:,}")
 
+    # Overtake probabilities
+    if overtake_data:
+        try:
+            from overtake_probability import format_overtake_section
+            overtake_section = format_overtake_section(overtake_data)
+            if overtake_section:
+                sections.append(overtake_section)
+        except Exception:
+            pass
+
     # Footer
     sections.append("")
     sections.append(f"URL: {url}")
@@ -343,6 +357,17 @@ def format_snapshot_message(
             if m.get("is_preliminary"):
                 parts.append("[Preliminary]")
             sections.append(" — ".join(parts))
+
+    # Overtake probabilities
+    overtake = snapshot.get("overtake")
+    if overtake:
+        try:
+            from overtake_probability import format_overtake_section
+            overtake_section = format_overtake_section(overtake)
+            if overtake_section:
+                sections.append(overtake_section)
+        except Exception:
+            pass
 
     if old_hash or new_hash:
         sections.append("")
