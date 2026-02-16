@@ -383,6 +383,22 @@ def build_message(
         ).strip()
         return bound_message_length(message, url)
 
+    # When both snapshots are empty, the legacy parser couldn't extract
+    # model data — fall back to a fingerprint-only message rather than
+    # showing a misleading "Top 0 snapshot changes" header.
+    if not previous_snapshot and not current_snapshot:
+        message = textwrap.dedent(
+            f"""
+            🔔 Arena {subject} update detected.
+            URL: {url}
+            Previous fingerprint: {old_display}
+            New fingerprint: {new_hash[:12]}
+            Checked at: {timestamp}
+            (Model snapshot data unavailable for detailed comparison.)
+            """
+        ).strip()
+        return bound_message_length(message, url)
+
     diffs = diff_snapshots(previous_snapshot, current_snapshot)
     snapshot_window_size = max(len(previous_snapshot), len(current_snapshot))
 
@@ -562,7 +578,7 @@ def run_single_check(args: argparse.Namespace) -> int:
         try:
             from leaderboard_parser import safe_parse_html
             from snapshot_store import store_snapshot, load_from_cache
-            from snapshot_diff import compute_diff, has_changes, format_discord_message, format_diff_summary
+            from snapshot_diff import compute_diff, has_changes, format_discord_message, format_diff_summary, format_snapshot_message
 
             structured_snapshot = safe_parse_html(html)
             if structured_snapshot:
@@ -664,6 +680,16 @@ def run_single_check(args: argparse.Namespace) -> int:
             # Use rich structured diff message if available
             if use_structured and structured_diff and has_changes(structured_diff):
                 message = format_discord_message(structured_diff, args.url)
+            elif use_structured and structured_snapshot and structured_snapshot.get("models"):
+                # Structured snapshot exists but no diff (e.g. cache miss) —
+                # show current top models instead of falling through to
+                # the legacy parser which may return empty results.
+                message = format_snapshot_message(
+                    structured_snapshot,
+                    args.url,
+                    old_hash=effective_old_hash,
+                    new_hash=new_hash,
+                )
             else:
                 use_legacy_hash_message = old_hash is not None and old_snapshot is None
                 message = build_message(

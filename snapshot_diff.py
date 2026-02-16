@@ -302,6 +302,63 @@ def format_diff_summary(diff: dict) -> str:
     return ", ".join(parts) if parts else "no changes"
 
 
+def format_snapshot_message(
+    snapshot: dict,
+    url: str,
+    old_hash: str | None = None,
+    new_hash: str | None = None,
+    top_n: int = 10,
+) -> str:
+    """Format a message from a structured snapshot when no previous diff is available.
+
+    Used when a change is detected but there's no prior structured snapshot to
+    diff against (e.g. first run or cache eviction).  Lists the current top
+    models so the notification is still informative.
+    """
+    sections: list[str] = []
+    sections.append("**Arena Leaderboard Update**")
+
+    date = snapshot.get("leaderboard_date")
+    if date:
+        sections.append(f"Leaderboard date: {date}")
+
+    total_votes = snapshot.get("total_votes")
+    if total_votes is not None:
+        sections.append(f"Total votes: {total_votes:,}")
+
+    models = snapshot.get("models", [])
+    total_models = snapshot.get("total_models", len(models))
+    sections.append(f"Total models tracked: {total_models}")
+
+    if models:
+        sections.append("")
+        sections.append(f"**Current Top {min(top_n, len(models))}:**")
+        for m in models[:top_n]:
+            rank = m.get("rank", "?")
+            name = m.get("model_name", "?")
+            score = m.get("score")
+            parts = [f"  #{rank} {name}"]
+            if score is not None:
+                parts.append(f"score {score}")
+            if m.get("is_preliminary"):
+                parts.append("[Preliminary]")
+            sections.append(" — ".join(parts))
+
+    if old_hash or new_hash:
+        sections.append("")
+        if old_hash:
+            sections.append(f"Previous fingerprint: {old_hash[:12]}")
+        if new_hash:
+            sections.append(f"New fingerprint: {new_hash[:12]}")
+
+    sections.append("")
+    sections.append("(No prior structured snapshot for detailed diff.)")
+    sections.append(f"URL: {url}")
+
+    message = "\n".join(sections)
+    return _truncate(message, MAX_DISCORD_MESSAGE_LENGTH, url)
+
+
 def _truncate(message: str, max_length: int, url: str) -> str:
     if len(message) <= max_length:
         return message
