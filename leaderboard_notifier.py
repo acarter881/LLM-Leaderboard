@@ -603,6 +603,7 @@ def run_single_check(args: argparse.Namespace) -> int:
         pending_count = 0
 
     changed = False
+    hash_confirmed = False  # True when the 2-check confirmation passes (even if veto suppresses notification)
     effective_old_hash = old_hash
     effective_old_snapshot = old_snapshot
 
@@ -624,6 +625,7 @@ def run_single_check(args: argparse.Namespace) -> int:
 
         if pending_count >= args.confirmation_checks:
             changed = True
+            hash_confirmed = True
             effective_old_hash = old_hash
             effective_old_snapshot = old_snapshot
             state.pop("pending_hash", None)
@@ -653,6 +655,18 @@ def run_single_check(args: argparse.Namespace) -> int:
                     summary = format_diff_summary(structured_diff)
                     print(f"Structured diff: {summary}")
 
+                    # --- Structured veto ---
+                    # If the hash changed but the structured model data
+                    # did NOT change, suppress the notification.  This
+                    # prevents false positives from cosmetic page changes
+                    # (e.g. new sidebar filters, layout tweaks).
+                    if changed and not has_changes(structured_diff):
+                        print(
+                            "Page fingerprint changed but structured leaderboard "
+                            "data is identical — suppressing notification."
+                        )
+                        changed = False
+
                 # Store snapshot and update time series
                 store_result = store_snapshot(
                     structured_snapshot,
@@ -670,6 +684,14 @@ def run_single_check(args: argparse.Namespace) -> int:
                 save_latest_for_cache(structured_snapshot, args.structured_cache)
         except Exception as exc:
             print(f"Warning: structured storage/diff failed: {exc}", file=sys.stderr)
+
+    # Guard against duplicate notifications across overlapping workflow runs.
+    last_notified_hash = state.get("last_notified_hash")
+    if changed and new_hash == last_notified_hash:
+        print(
+            "Notification already sent for this fingerprint in a prior run — skipping."
+        )
+        changed = False
 
     should_send = args.force_send or changed
 
@@ -730,13 +752,17 @@ def run_single_check(args: argparse.Namespace) -> int:
                 print(f"Failed to send Discord message: {exc}", file=sys.stderr)
                 return 1
             print("Discord notification sent.")
+            state["last_notified_hash"] = new_hash
 
     state_updates = {
         "url": args.url,
         "snapshot_top_n": DEFAULT_SNAPSHOT_TOP_N,
         "last_checked_utc": datetime.now(timezone.utc).isoformat(),
     }
-    if changed or old_hash is None:
+    # Update the stored hash whenever the confirmation threshold is reached
+    # (even if the structured veto suppressed the notification), so the next
+    # check doesn't restart the confirmation cycle for the same hash.
+    if hash_confirmed or old_hash is None:
         state_updates["hash"] = new_hash
         state_updates["snapshot"] = current_snapshot
     state.update(state_updates)
