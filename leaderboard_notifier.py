@@ -679,9 +679,12 @@ def run_single_check(args: argparse.Namespace) -> int:
                 if store_result.get("snapshot_path"):
                     print(f"Snapshot saved: {store_result['snapshot_path']}")
             else:
-                # No change confirmed — still update cache for freshness
-                from snapshot_store import save_latest_for_cache
-                save_latest_for_cache(structured_snapshot, args.structured_cache)
+                # Only update cache when hash is stable (no pending confirmation).
+                # Preserving the old cache during the pending window ensures the
+                # structured diff has a meaningful baseline when confirmation arrives.
+                if old_hash == new_hash:
+                    from snapshot_store import save_latest_for_cache
+                    save_latest_for_cache(structured_snapshot, args.structured_cache)
         except Exception as exc:
             print(f"Warning: structured storage/diff failed: {exc}", file=sys.stderr)
 
