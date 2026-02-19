@@ -4,9 +4,98 @@ Monitor the [Arena LLM leaderboard](https://arena.ai/leaderboard/text/overall-no
 
 In addition to detecting *that* the leaderboard changed, the structured time series system extracts *what* changed — rank movements, Elo score deltas, confidence interval shifts, vote accumulation, and new model arrivals — and stores historical snapshots for analysis.
 
-## Cloud-only setup (GitHub Actions)
+## Local setup (recommended for fast polling)
 
-This repository is configured to run **entirely in GitHub Actions** so you do not need to run the notifier locally.
+GitHub Actions cron is best-effort and can delay runs by 30–60+ minutes. For time-sensitive monitoring, run the notifier locally. It polls continuously and sends Discord notifications within seconds of a change.
+
+### Prerequisites
+
+- **Python 3.10+** — check with `python --version` (or `python3 --version` on macOS/Linux).
+- **A Discord webhook URL** — from your Discord channel's **Integrations → Webhooks** page.
+- No additional Python packages are required (stdlib only).
+
+### Windows setup
+
+1. **Clone the repo** (Git Bash, PowerShell, or CMD):
+
+   ```
+   git clone https://github.com/acarter881/LLM-Leaderboard.git
+   cd LLM-Leaderboard
+   ```
+
+2. **Set your webhook** as an environment variable. Pick one method:
+
+   - **Option A — `.env` file** (used by `run_local.sh` if you run via Git Bash):
+
+     Create a file called `.env` in the repo root with one line:
+     ```
+     DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN
+     ```
+
+   - **Option B — PowerShell session variable** (simplest for a quick test):
+
+     ```powershell
+     $env:DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN"
+     ```
+
+   - **Option C — Permanent Windows environment variable** (persists across reboots):
+
+     ```
+     Settings → System → About → Advanced system settings → Environment Variables
+     ```
+     Add a **User variable** named `DISCORD_WEBHOOK_URL` with your webhook URL as the value.
+
+3. **Create the local state directory:**
+
+   ```
+   mkdir .local_state
+   ```
+
+4. **Run the notifier** (PowerShell or CMD):
+
+   ```
+   python leaderboard_notifier.py --loop --confirmation-checks 1 --min-interval-seconds 60 --max-interval-seconds 60 --state-file .local_state\leaderboard_state.json --structured-cache .local_state\structured_snapshot.json
+   ```
+
+   To poll every 30 seconds instead:
+
+   ```
+   python leaderboard_notifier.py --loop --confirmation-checks 1 --min-interval-seconds 30 --max-interval-seconds 30 --state-file .local_state\leaderboard_state.json --structured-cache .local_state\structured_snapshot.json
+   ```
+
+   To do a dry run first (no Discord post):
+
+   ```
+   python leaderboard_notifier.py --loop --confirmation-checks 1 --min-interval-seconds 60 --max-interval-seconds 60 --state-file .local_state\leaderboard_state.json --structured-cache .local_state\structured_snapshot.json --dry-run
+   ```
+
+5. **Leave the terminal open.** Press `Ctrl+C` to stop. The notifier is resilient to transient network errors and will retry with backoff.
+
+### macOS / Linux setup
+
+1. Clone the repo and `cd` into it.
+2. Create a `.env` file:
+   ```bash
+   echo 'DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN' > .env
+   ```
+3. Run:
+   ```bash
+   ./run_local.sh        # polls every 60s
+   ./run_local.sh 30     # polls every 30s
+   ./run_local.sh --dry-run  # test without posting to Discord
+   ```
+
+### Local state files
+
+Local runs store state in `.local_state/` (gitignored):
+- `.local_state/leaderboard_state.json` — hash-based change detection
+- `.local_state/structured_snapshot.json` — latest structured snapshot for diffing
+
+These are separate from the GitHub Actions state, so both can run simultaneously without conflict.
+
+## Cloud setup (GitHub Actions)
+
+GitHub Actions is kept as a **backup**. It runs every 5 minutes (best-effort) and does not require any local machine.
 
 ### 1) Add your Discord webhook secret
 
@@ -22,12 +111,12 @@ The workflow file is at `.github/workflows/leaderboard-notifier.yml`.
 
 It supports:
 
-- **Scheduled runs** every 10 minutes.
+- **Scheduled runs** every 5 minutes (best-effort; GitHub may delay during high load).
 - **Manual runs** via **Actions → Arena Leaderboard Notifier → Run workflow**.
   - Optional `force_send` input for webhook delivery testing.
   - Optional `dry_run` input to validate hashing/change detection without posting to Discord.
 
-Each run does 2 quick checks 30 seconds apart (for confirmation) and finishes in about 1 minute.
+Each run does a single check and finishes in under a minute.
 
 ### 3) State persistence in the cloud
 
@@ -173,7 +262,7 @@ CLI flags:
 
 - `--retries` (default: `3`) — number of retry attempts after the initial request fails.
 - `--retry-backoff-seconds` (default: `2`) — base backoff delay in seconds; each retry doubles the delay.
-- `--confirmation-checks` (default: `2`) — number of consecutive checks that must observe a new fingerprint before notification.
+- `--confirmation-checks` (default: `2`; workflow uses `1`) — number of consecutive checks that must observe a new fingerprint before notification. Set to `1` for immediate detection.
 
 ## Analytics CLI
 
