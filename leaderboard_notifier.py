@@ -803,13 +803,36 @@ def main() -> int:
     if not args.loop:
         return run_single_check(args)
 
+    consecutive_errors = 0
+    max_consecutive_errors = 10
     check_count = 0
     while True:
         check_count += 1
-        print(f"Starting check {check_count}.")
-        result = run_single_check(args)
+        print(f"\n--- Check {check_count} at {datetime.now(timezone.utc).strftime('%H:%M:%S UTC')} ---")
+        try:
+            result = run_single_check(args)
+        except Exception as exc:
+            result = 1
+            print(f"Unexpected error during check: {exc}", file=sys.stderr)
+
         if result != 0:
-            return result
+            consecutive_errors += 1
+            if args.max_checks is not None:
+                # In bounded mode (e.g. GitHub Actions), fail fast.
+                return result
+            # In unbounded loop mode (local daemon), log and continue.
+            if consecutive_errors >= max_consecutive_errors:
+                print(
+                    f"Aborting after {max_consecutive_errors} consecutive errors.",
+                    file=sys.stderr,
+                )
+                return 1
+            backoff = min(60 * consecutive_errors, 300)
+            print(f"Check failed (attempt {consecutive_errors}/{max_consecutive_errors}); retrying in {backoff}s.")
+            time.sleep(backoff)
+            continue
+        else:
+            consecutive_errors = 0
 
         if args.max_checks is not None and check_count >= args.max_checks:
             print(f"Reached max checks ({args.max_checks}); stopping loop.")
