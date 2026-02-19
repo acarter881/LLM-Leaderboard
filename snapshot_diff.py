@@ -151,6 +151,23 @@ def has_changes(diff: dict) -> bool:
     return any(diff.get(k) for k in change_keys)
 
 
+def has_significant_changes(diff: dict) -> bool:
+    """Return True if the diff contains changes that warrant a notification.
+
+    Excludes vote_changes — vote counts update constantly as users vote and
+    would trigger a notification on almost every check.  All other field
+    changes (ranks, scores, CIs, new/removed models, preliminary status)
+    only happen when the leaderboard actually refreshes.
+    """
+    significant_keys = [
+        "new_models", "removed_models", "rank_changes", "rank_ub_changes",
+        "score_changes", "ci_changes", "preliminary_changes",
+    ]
+    if diff.get("leaderboard_date_changed"):
+        return True
+    return any(diff.get(k) for k in significant_keys)
+
+
 # ---------------------------------------------------------------------------
 # Discord message formatting
 # ---------------------------------------------------------------------------

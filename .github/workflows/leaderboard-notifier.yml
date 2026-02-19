@@ -2,7 +2,7 @@ name: Arena Leaderboard Notifier
 
 on:
   schedule:
-    - cron: "*/10 * * * *"
+    - cron: "*/5 * * * *"
   workflow_dispatch:
     inputs:
       force_send:
@@ -68,10 +68,7 @@ jobs:
             --structured-cache "$STRUCTURED_CACHE" \
             --snapshot-dir "$SNAPSHOT_DIR" \
             --timeseries-dir "$TIMESERIES_DIR" \
-            --loop \
-            --max-checks 2 \
-            --min-interval-seconds 30 \
-            --max-interval-seconds 30 \
+            --confirmation-checks 1 \
             $FORCE_SEND \
             $DRY_RUN
 

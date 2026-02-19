@@ -131,7 +131,7 @@ class TestConfirmationVetoRace(unittest.TestCase):
     def test_diff_has_changes_after_confirmation(self):
         """When confirmation arrives, the diff must show real changes."""
         from snapshot_store import save_latest_for_cache, load_from_cache
-        from snapshot_diff import compute_diff, has_changes
+        from snapshot_diff import compute_diff, has_changes, has_significant_changes
 
         with tempfile.TemporaryDirectory() as tmpdir:
             cache_path = Path(tmpdir) / "structured_snapshot.json"

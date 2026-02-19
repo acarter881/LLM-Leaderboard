@@ -2,7 +2,7 @@
 
 import unittest
 
-from snapshot_diff import compute_diff, has_changes, format_discord_message, format_diff_summary
+from snapshot_diff import compute_diff, has_changes, has_significant_changes, format_discord_message, format_diff_summary
 
 
 def _make_snapshot(models, date="Feb 11, 2026"):
@@ -86,6 +86,32 @@ class TestComputeDiff(unittest.TestCase):
         diff = compute_diff(prev, curr)
         self.assertTrue(has_changes(diff))
         self.assertEqual(diff["vote_changes"][0]["delta"], 500)
+
+    def test_vote_only_change_not_significant(self):
+        """Vote-only changes should not be considered significant (no notification)."""
+        prev = _make_snapshot([_model("model-a", 1, votes=1000)])
+        curr = _make_snapshot([_model("model-a", 1, votes=1500)])
+        diff = compute_diff(prev, curr)
+        self.assertTrue(has_changes(diff))
+        self.assertFalse(has_significant_changes(diff))
+
+    def test_rank_change_is_significant(self):
+        prev = _make_snapshot([_model("model-a", 1), _model("model-b", 2)])
+        curr = _make_snapshot([_model("model-a", 2), _model("model-b", 1)])
+        diff = compute_diff(prev, curr)
+        self.assertTrue(has_significant_changes(diff))
+
+    def test_score_change_is_significant(self):
+        prev = _make_snapshot([_model("model-a", 1, score=1500)])
+        curr = _make_snapshot([_model("model-a", 1, score=1510)])
+        diff = compute_diff(prev, curr)
+        self.assertTrue(has_significant_changes(diff))
+
+    def test_new_model_is_significant(self):
+        prev = _make_snapshot([_model("model-a", 1)])
+        curr = _make_snapshot([_model("model-a", 1), _model("model-b", 2)])
+        diff = compute_diff(prev, curr)
+        self.assertTrue(has_significant_changes(diff))
 
     def test_preliminary_change_detected(self):
         prev = _make_snapshot([_model("model-a", 1, is_preliminary=True)])
