@@ -16,60 +16,33 @@ GitHub Actions cron is best-effort and can delay runs by 30–60+ minutes. For t
 
 ### Windows setup
 
-1. **Clone the repo** (Git Bash, PowerShell, or CMD):
+1. **Clone the repo** (PowerShell, CMD, or Git Bash):
 
    ```
    git clone https://github.com/acarter881/LLM-Leaderboard.git
    cd LLM-Leaderboard
    ```
 
-2. **Set your webhook** as an environment variable. Pick one method:
-
-   - **Option A — `.env` file** (used by `run_local.sh` if you run via Git Bash):
-
-     Create a file called `.env` in the repo root with one line:
-     ```
-     DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN
-     ```
-
-   - **Option B — PowerShell session variable** (simplest for a quick test):
-
-     ```powershell
-     $env:DISCORD_WEBHOOK_URL = "https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN"
-     ```
-
-   - **Option C — Permanent Windows environment variable** (persists across reboots):
-
-     ```
-     Settings → System → About → Advanced system settings → Environment Variables
-     ```
-     Add a **User variable** named `DISCORD_WEBHOOK_URL` with your webhook URL as the value.
-
-3. **Create the local state directory:**
+2. **Create a `.env` file** in the repo root with your webhook URL:
 
    ```
-   mkdir .local_state
+   DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN
    ```
 
-4. **Run the notifier** (PowerShell or CMD):
+   The `.env` file is per-repo, so each cloned repository can point to a different Discord channel. This avoids conflicts if you have other projects that also use `DISCORD_WEBHOOK_URL`.
+
+3. **Run the notifier** using `run_local.bat` (CMD or PowerShell):
 
    ```
-   python leaderboard_notifier.py --loop --confirmation-checks 1 --min-interval-seconds 60 --max-interval-seconds 60 --state-file .local_state\leaderboard_state.json --structured-cache .local_state\structured_snapshot.json
+   run_local.bat              &REM polls every 60s
+   run_local.bat 30           &REM polls every 30s
+   run_local.bat --dry-run    &REM test without posting to Discord
+   run_local.bat 30 --dry-run &REM both combined
    ```
 
-   To poll every 30 seconds instead:
+   The batch file reads `.env`, creates needed directories (`.local_state\`, `data\snapshots\`, `data\timeseries\`), and starts the notifier with the right flags.
 
-   ```
-   python leaderboard_notifier.py --loop --confirmation-checks 1 --min-interval-seconds 30 --max-interval-seconds 30 --state-file .local_state\leaderboard_state.json --structured-cache .local_state\structured_snapshot.json
-   ```
-
-   To do a dry run first (no Discord post):
-
-   ```
-   python leaderboard_notifier.py --loop --confirmation-checks 1 --min-interval-seconds 60 --max-interval-seconds 60 --state-file .local_state\leaderboard_state.json --structured-cache .local_state\structured_snapshot.json --dry-run
-   ```
-
-5. **Leave the terminal open.** Press `Ctrl+C` to stop. The notifier is resilient to transient network errors and will retry with backoff.
+4. **Leave the terminal open.** Press `Ctrl+C` to stop. The notifier is resilient to transient network errors and will retry with backoff.
 
 ### macOS / Linux setup
 
