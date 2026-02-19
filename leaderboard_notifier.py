@@ -578,7 +578,7 @@ def run_single_check(args: argparse.Namespace) -> int:
         try:
             from leaderboard_parser import safe_parse_html
             from snapshot_store import store_snapshot, load_from_cache
-            from snapshot_diff import compute_diff, has_changes, format_discord_message, format_diff_summary, format_snapshot_message
+            from snapshot_diff import compute_diff, has_changes, has_significant_changes, format_discord_message, format_diff_summary, format_snapshot_message
 
             structured_snapshot = safe_parse_html(html)
             if structured_snapshot:
@@ -656,14 +656,15 @@ def run_single_check(args: argparse.Namespace) -> int:
                     print(f"Structured diff: {summary}")
 
                     # --- Structured veto ---
-                    # If the hash changed but the structured model data
-                    # did NOT change, suppress the notification.  This
-                    # prevents false positives from cosmetic page changes
-                    # (e.g. new sidebar filters, layout tweaks).
-                    if changed and not has_changes(structured_diff):
+                    # If the hash changed but only votes changed (or no
+                    # structural change at all), suppress the notification.
+                    # Votes update constantly as users vote; rank/score/CI
+                    # changes only happen on a real leaderboard refresh.
+                    if changed and not has_significant_changes(structured_diff):
                         print(
-                            "Page fingerprint changed but structured leaderboard "
-                            "data is identical — suppressing notification."
+                            "Page fingerprint changed but no significant "
+                            "leaderboard changes (vote-only or cosmetic) "
+                            "— suppressing notification."
                         )
                         changed = False
 
