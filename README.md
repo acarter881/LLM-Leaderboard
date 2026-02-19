@@ -1,6 +1,6 @@
 # LLM-Leaderboard
 
-Monitor the [Arena LLM leaderboard](https://arena.ai/leaderboard/text/overall-no-style-control) and send a message to a Discord channel when the rankings change.
+Monitor the [Arena LLM leaderboard](https://arena.ai/leaderboard/text) and send a message to a Discord channel when the rankings change.
 
 In addition to detecting *that* the leaderboard changed, the structured time series system extracts *what* changed — rank movements, Elo score deltas, confidence interval shifts, vote accumulation, and new model arrivals — and stores historical snapshots for analysis.
 
@@ -149,7 +149,7 @@ Useful options:
 python leaderboard_notifier.py --dry-run
 python leaderboard_notifier.py --force-send --max-checks 1
 python leaderboard_notifier.py --state-file /path/to/state.json
-python leaderboard_notifier.py --url https://arena.ai/leaderboard/text/overall-no-style-control
+python leaderboard_notifier.py --url https://arena.ai/leaderboard/text
 python leaderboard_notifier.py --loop --min-interval-seconds 30 --max-interval-seconds 30 --max-checks 2
 python leaderboard_notifier.py --retries 3 --retry-backoff-seconds 2
 python leaderboard_notifier.py --confirmation-checks 2

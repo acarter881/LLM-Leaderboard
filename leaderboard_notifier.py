@@ -20,7 +20,7 @@ from typing import Callable, TypeVar
 from urllib import error, request
 from urllib.parse import urlparse
 
-DEFAULT_URL = "https://arena.ai/leaderboard/text/overall-no-style-control"
+DEFAULT_URL = "https://arena.ai/leaderboard/text"
 DEFAULT_STATE_FILE = "leaderboard_state.json"
 DEFAULT_TIMEOUT = 30
 DEFAULT_RETRIES = 3
