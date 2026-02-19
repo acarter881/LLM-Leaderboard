@@ -29,16 +29,23 @@ In addition to detecting *that* the leaderboard changed, the structured time ser
 
    The `.env` file is per-repo, so each cloned repository can point to a different Discord channel. This avoids conflicts if you have other projects that also use `DISCORD_WEBHOOK_URL`.
 
-3. **Run the notifier** using `run_local.bat` (CMD or PowerShell):
+3. **Run the notifier** using `run_monitor.ps1` (PowerShell, recommended) or `run_local.bat` (CMD):
+
+   ```powershell
+   # PowerShell — auto-restarts on crash and sends a Discord alert
+   .\run_monitor.ps1              # polls every 60s
+   .\run_monitor.ps1 30           # polls every 30s
+   .\run_monitor.ps1 --dry-run    # test without posting to Discord
+   .\run_monitor.ps1 30 --dry-run # both combined
+   ```
 
    ```
-   run_local.bat              &REM polls every 60s
-   run_local.bat 30           &REM polls every 30s
-   run_local.bat --dry-run    &REM test without posting to Discord
-   run_local.bat 30 --dry-run &REM both combined
+   REM CMD — same options, no crash monitoring
+   run_local.bat
+   run_local.bat 30
    ```
 
-   The batch file reads `.env`, creates needed directories (`.local_state\`, `data\snapshots\`, `data\timeseries\`), and starts the notifier with the right flags.
+   Both scripts read `.env`, create needed directories (`.local_state\`, `data\snapshots\`, `data\timeseries\`), and start the notifier with the right flags. The PowerShell wrapper adds crash monitoring: if the notifier exits unexpectedly, it sends a Discord alert and restarts after 30 seconds.
 
 4. **Leave the terminal open.** Press `Ctrl+C` to stop. The notifier is resilient to transient network errors and will retry with backoff.
 
