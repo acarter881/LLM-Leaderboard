@@ -23,7 +23,7 @@ class TestConfirmationVetoRace(unittest.TestCase):
 
     def _make_args(self, state_file, structured_cache, snapshot_dir, timeseries_dir):
         return argparse.Namespace(
-            url="https://arena.ai/leaderboard/text",
+            url="https://arena.ai/leaderboard/text/overall-no-style-control",
             webhook_url="https://discord.com/api/webhooks/test/fake",
             state_file=state_file,
             timeout=30,

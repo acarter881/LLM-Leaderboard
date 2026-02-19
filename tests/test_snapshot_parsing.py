@@ -87,7 +87,7 @@ class SnapshotParsingTests(unittest.TestCase):
     def test_message_uses_non_zero_snapshot_window_when_current_empty(self):
         previous = [{"rank": 1, "model": "GPT-5"}]
         message = build_message(
-            "https://arena.ai/leaderboard/text",
+            "https://arena.ai/leaderboard/text/overall-no-style-control",
             "abc123",
             "def456",
             previous_snapshot=previous,
