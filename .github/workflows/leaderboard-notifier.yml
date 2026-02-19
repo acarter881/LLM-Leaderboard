@@ -2,7 +2,7 @@ name: Arena Leaderboard Notifier
 
 on:
   schedule:
-    - cron: "0 * * * *"
+    - cron: "*/10 * * * *"
   workflow_dispatch:
     inputs:
       force_send:
@@ -21,11 +21,9 @@ permissions:
 
 env:
   LEADERBOARD_STATE_FILE: .github/state/leaderboard_state.json
-  CHANGELOG_STATE_FILE: .github/state/changelog_state.json
   STRUCTURED_CACHE: .github/state/structured_snapshot.json
   SNAPSHOT_DIR: data/snapshots
   TIMESERIES_DIR: data/timeseries
-  CHANGELOG_URL: https://arena.ai/blog/leaderboard-changelog/
 
 jobs:
   check-leaderboard:
@@ -59,37 +57,21 @@ jobs:
           mkdir -p "$SNAPSHOT_DIR"
           mkdir -p "$TIMESERIES_DIR"
 
-      - name: Run leaderboard notifier checks
+      - name: Run leaderboard notifier check
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
           FORCE_SEND: ${{ github.event.inputs.force_send == 'true' && '--force-send' || '' }}
           DRY_RUN: ${{ github.event.inputs.dry_run == 'true' && '--dry-run' || '' }}
         run: |
-          MAX_CHECKS=12
-          if [ -n "$FORCE_SEND" ]; then
-            MAX_CHECKS=1
-          fi
-
           python leaderboard_notifier.py \
             --state-file "$LEADERBOARD_STATE_FILE" \
             --structured-cache "$STRUCTURED_CACHE" \
             --snapshot-dir "$SNAPSHOT_DIR" \
             --timeseries-dir "$TIMESERIES_DIR" \
             --loop \
-            --min-interval-seconds 120 \
-            --max-interval-seconds 300 \
-            --max-checks "$MAX_CHECKS" \
-            $FORCE_SEND \
-            $DRY_RUN
-
-          python leaderboard_notifier.py \
-            --url "$CHANGELOG_URL" \
-            --state-file "$CHANGELOG_STATE_FILE" \
-            --no-structured \
-            --loop \
-            --min-interval-seconds 120 \
-            --max-interval-seconds 300 \
-            --max-checks "$MAX_CHECKS" \
+            --max-checks 2 \
+            --min-interval-seconds 30 \
+            --max-interval-seconds 30 \
             $FORCE_SEND \
             $DRY_RUN
 

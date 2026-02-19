@@ -1,9 +1,6 @@
 # LLM-Leaderboard
 
-Monitor official Arena update sources and send a message to a Discord channel when page content changes:
-
-- [Arena LLM leaderboard](https://arena.ai/leaderboard/text/overall-no-style-control)
-- [Arena leaderboard changelog](https://arena.ai/blog/leaderboard-changelog/)
+Monitor the [Arena LLM leaderboard](https://arena.ai/leaderboard/text/overall-no-style-control) and send a message to a Discord channel when the rankings change.
 
 In addition to detecting *that* the leaderboard changed, the structured time series system extracts *what* changed — rank movements, Elo score deltas, confidence interval shifts, vote accumulation, and new model arrivals — and stores historical snapshots for analysis.
 
@@ -25,25 +22,12 @@ The workflow file is at `.github/workflows/leaderboard-notifier.yml`.
 
 It supports:
 
-- **Scheduled runs** hourly.
+- **Scheduled runs** every 10 minutes.
 - **Manual runs** via **Actions → Arena Leaderboard Notifier → Run workflow**.
   - Optional `force_send` input for webhook delivery testing.
   - Optional `dry_run` input to validate hashing/change detection without posting to Discord.
 
-### Why hourly scheduling with internal polling
-
-GitHub Actions cron schedules are not guaranteed to run more frequently than every 5 minutes, and real trigger timing can still vary. To get more responsive checks, this workflow starts hourly and then runs multiple checks inside one workflow execution using randomized delays.
-
-Current loop configuration in the workflow:
-
-- `--loop`
-- `--min-interval-seconds 120`
-- `--max-interval-seconds 300`
-- `--max-checks 12`
-
-This gives an effective internal polling cadence of roughly **2–5 minutes** between checks for up to 12 checks per workflow run.
-
-Tradeoff: each run stays alive longer, which increases GitHub Actions runtime/minutes consumption.
+Each run does 2 quick checks 30 seconds apart (for confirmation) and finishes in about 1 minute.
 
 ### 3) State persistence in the cloud
 
@@ -51,7 +35,6 @@ GitHub runners are ephemeral, so the workflow saves and restores state using the
 
 - State paths:
   - `.github/state/leaderboard_state.json` — hash-based change detection state
-  - `.github/state/changelog_state.json` — changelog change detection state
   - `.github/state/structured_snapshot.json` — latest structured snapshot (used for diffing)
 - Data paths (also cached):
   - `data/snapshots/` — full gzipped JSON snapshots (one per detected change)
@@ -132,7 +115,7 @@ When a change is confirmed, the diff engine compares the previous and current st
 
 ## Script details
 
-`leaderboard_notifier.py` checks a target page URL, hashes normalized page text, compares it with the previous hash from a state file, and sends a Discord webhook message when a change is detected. In GitHub Actions, this script is run for both the leaderboard page and the official leaderboard changelog URL above. To reduce noisy flip-flop alerts from transient upstream variants, a new fingerprint must be seen for consecutive checks before it is announced.
+`leaderboard_notifier.py` checks a target page URL, hashes normalized page text, compares it with the previous hash from a state file, and sends a Discord webhook message when a change is detected. To reduce noisy flip-flop alerts from transient upstream variants, a new fingerprint must be seen for consecutive checks before it is announced.
 
 When run locally, the notifier automatically creates `leaderboard_state.json` in the repository root (or at the path you pass via `--state-file`) after the first successful check.
 
@@ -149,7 +132,7 @@ python leaderboard_notifier.py --dry-run
 python leaderboard_notifier.py --force-send --max-checks 1
 python leaderboard_notifier.py --state-file /path/to/state.json
 python leaderboard_notifier.py --url https://arena.ai/leaderboard/text/overall-no-style-control
-python leaderboard_notifier.py --loop --min-interval-seconds 120 --max-interval-seconds 300 --max-checks 12
+python leaderboard_notifier.py --loop --min-interval-seconds 30 --max-interval-seconds 30 --max-checks 2
 python leaderboard_notifier.py --retries 3 --retry-backoff-seconds 2
 python leaderboard_notifier.py --confirmation-checks 2
 python leaderboard_notifier.py --no-structured  # hash-only mode, no structured parsing
