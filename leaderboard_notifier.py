@@ -33,7 +33,7 @@ MAX_DISCORD_MESSAGE_LENGTH = 1800
 # Structured time-series defaults
 DEFAULT_SNAPSHOT_DIR = "data/snapshots"
 DEFAULT_TIMESERIES_DIR = "data/timeseries"
-DEFAULT_STRUCTURED_CACHE = ".github/state/structured_snapshot.json"
+DEFAULT_STRUCTURED_CACHE = "data/structured_snapshot.json"
 
 
 def fetch_html(url: str, timeout: int) -> str:
@@ -204,13 +204,14 @@ def parse_leaderboard_snapshot(html: str, top_n: int = DEFAULT_SNAPSHOT_TOP_N) -
         row_blocks = re.findall(r"<tr\b[^>]*>.*?</tr>", html, flags=re.I | re.S)
         snapshots = _parse_snapshot_rows(row_blocks)
 
-    snapshots.sort(key=lambda item: item["rank"])
-    seen_ranks: set[int] = set()
+    snapshots.sort(key=lambda item: (item["rank"], item.get("model", "")))
+    seen_models: set[str] = set()
     deduplicated: list[dict] = []
     for row in snapshots:
-        if row["rank"] in seen_ranks:
+        model = row.get("model", "")
+        if model in seen_models:
             continue
-        seen_ranks.add(row["rank"])
+        seen_models.add(model)
         deduplicated.append(row)
     return deduplicated[:top_n]
 
@@ -689,7 +690,7 @@ def run_single_check(args: argparse.Namespace) -> int:
         except Exception as exc:
             print(f"Warning: structured storage/diff failed: {exc}", file=sys.stderr)
 
-    # Guard against duplicate notifications across overlapping workflow runs.
+    # Guard against duplicate notifications across overlapping runs.
     last_notified_hash = state.get("last_notified_hash")
     if changed and new_hash == last_notified_hash:
         print(

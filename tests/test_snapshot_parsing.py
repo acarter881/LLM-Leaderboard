@@ -37,6 +37,38 @@ class SnapshotParsingTests(unittest.TestCase):
             ],
         )
 
+    def test_tied_ranks_preserved(self):
+        """Models sharing the same rank should all be kept, not deduplicated."""
+        html = """
+        <table>
+          <tr><th>Rank</th><th>Model</th><th>Score</th></tr>
+          <tr><td>1</td><td>GPT-5</td><td>1500</td></tr>
+          <tr><td>2</td><td>Claude 4</td><td>1495</td></tr>
+          <tr><td>2</td><td>Gemini 3</td><td>1495</td></tr>
+          <tr><td>4</td><td>Grok 4</td><td>1480</td></tr>
+        </table>
+        """
+        snapshot = parse_leaderboard_snapshot(html)
+        model_names = [row["model"] for row in snapshot]
+        self.assertIn("Claude 4", model_names)
+        self.assertIn("Gemini 3", model_names)
+        self.assertEqual(len(snapshot), 4)
+
+    def test_duplicate_model_rows_deduplicated(self):
+        """Exact duplicate rows for the same model should be removed."""
+        html = """
+        <table>
+          <tr><th>Rank</th><th>Model</th><th>Score</th></tr>
+          <tr><td>1</td><td>GPT-5</td><td>1500</td></tr>
+          <tr><td>1</td><td>GPT-5</td><td>1500</td></tr>
+          <tr><td>2</td><td>Claude 4</td><td>1495</td></tr>
+        </table>
+        """
+        snapshot = parse_leaderboard_snapshot(html)
+        self.assertEqual(len(snapshot), 2)
+        self.assertEqual(snapshot[0]["model"], "GPT-5")
+        self.assertEqual(snapshot[1]["model"], "Claude 4")
+
     def test_diff_reports_drop_from_previous_window_when_current_empty(self):
         previous = [
             {"rank": 1, "model": "GPT-5"},

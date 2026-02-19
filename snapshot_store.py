@@ -191,10 +191,10 @@ def save_latest_for_cache(
     snapshot: dict,
     cache_path: str | Path,
 ) -> None:
-    """Save a snapshot to a specific path for GitHub Actions cache.
+    """Save a snapshot to a specific path for caching.
 
     This stores the latest snapshot at a well-known path so the next
-    workflow run can load it for diffing.
+    run can load it for diffing.
     """
     cache_path = Path(cache_path)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
