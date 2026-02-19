@@ -44,15 +44,18 @@ REM Check if first arg starts with a dash (flag) or is a number (interval)
 set "first=%~1"
 if "!first:~0,1!"=="-" (
     set "EXTRA_FLAGS=%*"
-) else (
-    set "INTERVAL=%~1"
-    shift
-    :collect_flags
-    if "%~1"=="" goto :run
-    set "EXTRA_FLAGS=!EXTRA_FLAGS! %~1"
-    shift
-    goto :collect_flags
+    goto :run
 )
+
+REM First arg is a number — use it as the interval
+set "INTERVAL=%~1"
+
+REM Collect remaining flags (args 2, 3, ...)
+:collect_flags
+shift
+if "%~1"=="" goto :run
+set "EXTRA_FLAGS=!EXTRA_FLAGS! %~1"
+goto :collect_flags
 
 :run
 REM Create state and data directories
