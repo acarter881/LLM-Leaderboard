@@ -4,9 +4,7 @@ Monitor the [Arena LLM leaderboard](https://arena.ai/leaderboard/text/overall-no
 
 In addition to detecting *that* the leaderboard changed, the structured time series system extracts *what* changed — rank movements, Elo score deltas, confidence interval shifts, vote accumulation, and new model arrivals — and stores historical snapshots for analysis.
 
-## Local setup (recommended for fast polling)
-
-GitHub Actions cron is best-effort and can delay runs by 30–60+ minutes. For time-sensitive monitoring, run the notifier locally. It polls continuously and sends Discord notifications within seconds of a change.
+## Setup
 
 ### Prerequisites
 
@@ -58,52 +56,11 @@ GitHub Actions cron is best-effort and can delay runs by 30–60+ minutes. For t
    ./run_local.sh --dry-run  # test without posting to Discord
    ```
 
-### Local state files
+### State files
 
 Local runs store state in `.local_state/` (gitignored):
 - `.local_state/leaderboard_state.json` — hash-based change detection
 - `.local_state/structured_snapshot.json` — latest structured snapshot for diffing
-
-These are separate from the GitHub Actions state, so both can run simultaneously without conflict.
-
-## Cloud setup (GitHub Actions)
-
-GitHub Actions is kept as a **backup**. It runs every 5 minutes (best-effort) and does not require any local machine.
-
-### 1) Add your Discord webhook secret
-
-In your GitHub repository:
-
-1. Go to **Settings → Secrets and variables → Actions**.
-2. Create a new repository secret named `DISCORD_WEBHOOK_URL`.
-3. Set it to your Discord webhook URL.
-
-### 2) Enable and run the workflow
-
-The workflow file is at `.github/workflows/leaderboard-notifier.yml`.
-
-It supports:
-
-- **Scheduled runs** every 5 minutes (best-effort; GitHub may delay during high load).
-- **Manual runs** via **Actions → Arena Leaderboard Notifier → Run workflow**.
-  - Optional `force_send` input for webhook delivery testing.
-  - Optional `dry_run` input to validate hashing/change detection without posting to Discord.
-
-Each run does a single check and finishes in under a minute.
-
-### 3) State persistence in the cloud
-
-GitHub runners are ephemeral, so the workflow saves and restores state using the GitHub Actions cache:
-
-- State paths:
-  - `.github/state/leaderboard_state.json` — hash-based change detection state
-  - `.github/state/structured_snapshot.json` — latest structured snapshot (used for diffing)
-- Data paths (also cached):
-  - `data/snapshots/` — full gzipped JSON snapshots (one per detected change)
-  - `data/timeseries/top20.jsonl` — append-only compact time series for top 20 models
-- Cache prefix: `leaderboard-state-`
-
-This keeps change detection and historical data consistent between scheduled runs without any local machine.
 
 ## Architecture
 
@@ -173,7 +130,6 @@ When a change is confirmed, the diff engine compares the previous and current st
 
 - **Full snapshots**: `data/snapshots/YYYYMMDD_HHMMSS.json.gz` — gzipped JSON (~5x compression). Only stored when data actually changed.
 - **Top-20 time series**: `data/timeseries/top20.jsonl` — one JSON line appended per snapshot with compact model data.
-- Both directories are persisted via GitHub Actions cache between runs.
 
 ## Script details
 
@@ -218,11 +174,6 @@ python leaderboard_notifier.py --snapshot-dir ./my-snapshots --timeseries-dir ./
 
 When `--force-send` is used and no change is detected, the script now sends a clearly labeled force-send test message instead of a diff-style change report.
 
-- In GitHub Actions, run the workflow manually and set:
-  - `force_send: true` to verify Discord delivery using your repository secret.
-  - `dry_run: true` to verify logic without sending a message.
-
-
 ### Retry behavior for transient network failures
 
 The notifier automatically retries temporary network failures for both leaderboard fetches and Discord delivery attempts.
@@ -235,7 +186,7 @@ CLI flags:
 
 - `--retries` (default: `3`) — number of retry attempts after the initial request fails.
 - `--retry-backoff-seconds` (default: `2`) — base backoff delay in seconds; each retry doubles the delay.
-- `--confirmation-checks` (default: `2`; workflow uses `1`) — number of consecutive checks that must observe a new fingerprint before notification. Set to `1` for immediate detection.
+- `--confirmation-checks` (default: `2`) — number of consecutive checks that must observe a new fingerprint before notification. Set to `1` for immediate detection.
 
 ## Analytics CLI
 
@@ -277,17 +228,16 @@ Tests cover rank spread parsing (all documented examples), HTML table parsing, s
 
 ### `Failed to send Discord message: HTTP Error 403: Forbidden`
 
-If your workflow reaches `Run leaderboard notifier` and fails with HTTP 403, the GitHub Actions setup is usually fine and the request is reaching Discord. A 403 response means the webhook URL itself is being rejected.
+HTTP 403 means the webhook URL is being rejected by Discord.
 
 Check the following:
 
-1. **Secret name matches exactly**: `DISCORD_WEBHOOK_URL` (already correct in this repo and workflow).
-2. **Secret value is the full Discord webhook URL** from your channel's **Integrations → Webhooks** page.
-3. **Webhook is still active** (not deleted/regenerated).
-4. **No extra characters** were copied into the secret (spaces/newlines/quotes).
-5. **Run once with** `force_send: true` and `dry_run: false` to verify delivery.
+1. **`DISCORD_WEBHOOK_URL`** in your `.env` file is the full Discord webhook URL from your channel's **Integrations → Webhooks** page.
+2. **Webhook is still active** (not deleted/regenerated).
+3. **No extra characters** were copied (spaces/newlines/quotes).
+4. **Run once with** `--force-send --max-checks 1` to verify delivery.
 
-Tip: if this still returns 403, regenerate the Discord webhook and update the repository secret with the newly generated URL.
+Tip: if this still returns 403, regenerate the Discord webhook and update the URL in your `.env` file.
 
 ### Better error output for webhook failures
 
