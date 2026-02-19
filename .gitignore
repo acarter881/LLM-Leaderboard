@@ -5,6 +5,8 @@ __pycache__/
 # Local notifier state
 leaderboard_state.json
 .leaderboard_state.json
+.local_state/
+.env
 
 # Cached GitHub Actions state (structured_snapshot.json is committed for
 # persistence; other state files remain ignored)

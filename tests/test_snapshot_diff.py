@@ -87,12 +87,33 @@ class TestComputeDiff(unittest.TestCase):
         self.assertTrue(has_changes(diff))
         self.assertEqual(diff["vote_changes"][0]["delta"], 500)
 
-    def test_vote_only_change_not_significant(self):
-        """Vote-only changes should not be considered significant (no notification)."""
-        prev = _make_snapshot([_model("model-a", 1, votes=1000)])
-        curr = _make_snapshot([_model("model-a", 1, votes=1500)])
+    def test_vote_only_change_outside_top10_not_significant(self):
+        """Vote-only changes for models ranked > 10 are suppressed."""
+        prev = _make_snapshot([_model("model-a", 15, votes=1000)])
+        curr = _make_snapshot([_model("model-a", 15, votes=1500)])
         diff = compute_diff(prev, curr)
         self.assertTrue(has_changes(diff))
+        self.assertFalse(has_significant_changes(diff))
+
+    def test_vote_change_in_top10_is_significant(self):
+        """Vote changes for top-10 models are significant (tiebreaker)."""
+        prev = _make_snapshot([_model("model-a", 3, votes=1000)])
+        curr = _make_snapshot([_model("model-a", 3, votes=1500)])
+        diff = compute_diff(prev, curr)
+        self.assertTrue(has_significant_changes(diff))
+
+    def test_vote_change_at_rank10_boundary(self):
+        """Vote changes at exactly rank 10 are significant."""
+        prev = _make_snapshot([_model("model-a", 10, votes=1000)])
+        curr = _make_snapshot([_model("model-a", 10, votes=1200)])
+        diff = compute_diff(prev, curr)
+        self.assertTrue(has_significant_changes(diff))
+
+    def test_vote_change_at_rank11_not_significant(self):
+        """Vote changes at rank 11 are not significant."""
+        prev = _make_snapshot([_model("model-a", 11, votes=1000)])
+        curr = _make_snapshot([_model("model-a", 11, votes=1200)])
+        diff = compute_diff(prev, curr)
         self.assertFalse(has_significant_changes(diff))
 
     def test_rank_change_is_significant(self):

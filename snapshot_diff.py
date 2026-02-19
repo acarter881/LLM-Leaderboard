@@ -125,6 +125,7 @@ def compute_diff(previous: dict, current: dict) -> dict:
                 "previous_votes": prev_votes,
                 "current_votes": curr_votes,
                 "delta": curr_votes - prev_votes,
+                "current_rank": curr_m.get("rank"),
             })
 
         # Preliminary status changes
@@ -151,21 +152,28 @@ def has_changes(diff: dict) -> bool:
     return any(diff.get(k) for k in change_keys)
 
 
-def has_significant_changes(diff: dict) -> bool:
+def has_significant_changes(diff: dict, top_n_votes: int = 10) -> bool:
     """Return True if the diff contains changes that warrant a notification.
 
-    Excludes vote_changes — vote counts update constantly as users vote and
-    would trigger a notification on almost every check.  All other field
-    changes (ranks, scores, CIs, new/removed models, preliminary status)
-    only happen when the leaderboard actually refreshes.
+    Vote changes for models outside the top *top_n_votes* are excluded —
+    they update constantly as users vote and would trigger a notification
+    on almost every check.  Vote changes for top-N models ARE significant
+    because vote count is a tiebreaker when rank UB and Arena Score match.
     """
-    significant_keys = [
+    always_significant = [
         "new_models", "removed_models", "rank_changes", "rank_ub_changes",
         "score_changes", "ci_changes", "preliminary_changes",
     ]
     if diff.get("leaderboard_date_changed"):
         return True
-    return any(diff.get(k) for k in significant_keys)
+    if any(diff.get(k) for k in always_significant):
+        return True
+    # Vote changes only matter for the top N models.
+    for vc in diff.get("vote_changes", []):
+        rank = vc.get("current_rank")
+        if rank is not None and rank <= top_n_votes:
+            return True
+    return False
 
 
 # ---------------------------------------------------------------------------
