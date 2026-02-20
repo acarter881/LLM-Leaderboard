@@ -85,6 +85,8 @@ The system has two layers that run alongside each other:
 | `leaderboard_parser.py` | HTML → structured data. Rank spread parsing |
 | `snapshot_store.py` | JSON snapshot files, JSONL time series, cache I/O |
 | `snapshot_diff.py` | Structured diffs between snapshots, Discord formatting |
+| `projections.py` | Settlement-date projections for Kalshi-style contracts |
+| `overtake_probability.py` | Overtake probability math + Kalshi fair pricing |
 | `analytics.py` | CLI tool to query historical time series data |
 
 ### Structured data extracted per model
@@ -133,10 +135,44 @@ When a change is confirmed, the diff engine compares the previous and current st
 - Preliminary status changes
 - Leaderboard date refreshes
 
+### Settlement projections (Kalshi contracts)
+
+The `projections.py` module projects overtake probabilities forward to specific Kalshi contract settlement dates. This answers "what's the probability Model B overtakes the leader **by this Friday's settlement**?" rather than just at the current instant.
+
+**How it works:**
+
+1. **Vote velocity** — computed from the JSONL time series (votes/day per model over the last 7 days).
+2. **CI projection** — CI shrinks as `1/sqrt(n)`. Given a model's current votes and vote rate, project what the CI will be at settlement: `projected_CI = current_CI * sqrt(current_votes / projected_votes)`.
+3. **Time-aware overtake probability** — feed projected CIs into the same normal-distribution overtake math, but at the settlement date instead of now.
+4. **Time to resolution** — estimate when the overtake probability drops below 5%, meaning the ranking has effectively "locked in."
+
+**Contract cadences supported:**
+
+| Cadence | Settlement date | Kalshi series |
+|---------|----------------|---------------|
+| Weekly | Saturday | KXTOPMODEL |
+| Monthly | Last day of month | KXLLM1 |
+
+Both cadences are computed automatically on every leaderboard update and included in Discord notifications.
+
+**Organisation-level aggregation:**
+
+Kalshi contracts settle on *which company* has the #1 model. The module groups models by `organization` and reports the maximum overtake probability from any model belonging to each challenger organization.
+
+**Example Discord output:**
+
+```
+Weekly Settlement Projections (Sat Feb 21, 1.2d):
+  #1 claude-opus-4-6-thinking: CI ±8 → ±7.8 (350 votes/day)
+  #2 gpt-4.5: 34.5% now → 32.1% at settlement (280 v/d | locks in ~12d)
+  #3 gemini-2.5-pro: 12.1% now → 10.8% at settlement (420 v/d | locks in ~25d)
+  Org risk (vs Anthropic): OpenAI 32.1%, Google 10.8%
+```
+
 ### Storage
 
 - **Full snapshots**: `data/snapshots/YYYYMMDD_HHMMSS.json.gz` — gzipped JSON (~5x compression). Only stored when data actually changed.
-- **Top-20 time series**: `data/timeseries/top20.jsonl` — one JSON line appended per snapshot with compact model data.
+- **Top-20 time series**: `data/timeseries/top20.jsonl` — one JSON line appended per snapshot with compact model data. Includes settlement projection summaries.
 
 ## Script details
 

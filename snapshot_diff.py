@@ -189,6 +189,7 @@ def format_discord_message(
     url: str,
     top_n: int = 10,
     overtake_data: dict | None = None,
+    projections_data: dict | None = None,
 ) -> str:
     """Format a structured diff as a rich Discord notification.
 
@@ -197,6 +198,9 @@ def format_discord_message(
 
     If *overtake_data* (output of ``compute_all_overtake_probabilities``)
     is provided, an overtake-probability section is appended.
+
+    If *projections_data* (output of ``enrich_snapshot_with_projections``)
+    is provided, settlement projection sections are appended.
     """
     sections: list[str] = []
     sections.append("**Arena Leaderboard Update**")
@@ -312,6 +316,16 @@ def format_discord_message(
         except Exception:
             pass
 
+    # Settlement projections
+    if projections_data:
+        try:
+            from projections import format_all_projections
+            proj_section = format_all_projections(projections_data)
+            if proj_section:
+                sections.append(proj_section)
+        except Exception:
+            pass
+
     # Footer
     sections.append("")
     sections.append(f"URL: {url}")
@@ -391,6 +405,17 @@ def format_snapshot_message(
             overtake_section = format_overtake_section(overtake)
             if overtake_section:
                 sections.append(overtake_section)
+        except Exception:
+            pass
+
+    # Settlement projections
+    proj = snapshot.get("projections")
+    if proj:
+        try:
+            from projections import format_all_projections
+            proj_section = format_all_projections(proj)
+            if proj_section:
+                sections.append(proj_section)
         except Exception:
             pass
 

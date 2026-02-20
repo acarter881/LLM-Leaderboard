@@ -157,6 +157,28 @@ def append_top_n(
     if overtake and overtake.get("leader"):
         record["leader_prob_staying_1"] = overtake["leader"].get("prob_staying_1")
 
+    # Include settlement projection summaries if available.
+    projections = snapshot.get("projections")
+    if projections:
+        proj_compact: dict = {}
+        for cadence in ("weekly", "monthly"):
+            data = projections.get(cadence)
+            if data and data.get("projections"):
+                proj_compact[cadence] = {
+                    "settlement": data.get("settlement_label"),
+                    "days": data.get("days_remaining"),
+                    "top3": [
+                        {
+                            "name": p.get("model_name"),
+                            "now": round(p.get("prob_now", 0), 6),
+                            "settle": round(p.get("prob_at_settlement", 0), 6),
+                        }
+                        for p in data["projections"][:3]
+                    ],
+                }
+        if proj_compact:
+            record["projections"] = proj_compact
+
     line = json.dumps(record, ensure_ascii=False) + "\n"
     with open(filepath, "a", encoding="utf-8") as f:
         f.write(line)
@@ -247,6 +269,15 @@ def store_snapshot(
         enrich_snapshot(snapshot)
     except Exception as exc:
         print(f"Warning: overtake probability enrichment failed: {exc}", file=sys.stderr)
+
+    # Enrich with settlement projections (weekly + monthly).
+    try:
+        from projections import enrich_snapshot_with_projections
+        from snapshot_store import load_timeseries as _load_ts
+        ts = _load_ts(timeseries_dir)
+        enrich_snapshot_with_projections(snapshot, timeseries=ts)
+    except Exception as exc:
+        print(f"Warning: settlement projection enrichment failed: {exc}", file=sys.stderr)
 
     # Always update the cache (needed for next diff comparison)
     if cache_path:
