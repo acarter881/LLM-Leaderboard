@@ -707,7 +707,12 @@ def run_single_check(args: argparse.Namespace) -> int:
             # Use rich structured diff message if available
             if use_structured and structured_diff and has_changes(structured_diff):
                 overtake_data = structured_snapshot.get("overtake") if structured_snapshot else None
-                message = format_discord_message(structured_diff, args.url, overtake_data=overtake_data)
+                projections_data = structured_snapshot.get("projections") if structured_snapshot else None
+                message = format_discord_message(
+                    structured_diff, args.url,
+                    overtake_data=overtake_data,
+                    projections_data=projections_data,
+                )
             elif use_structured and structured_snapshot and structured_snapshot.get("models"):
                 # Structured snapshot exists but no diff (e.g. cache miss) —
                 # show current top models instead of falling through to
