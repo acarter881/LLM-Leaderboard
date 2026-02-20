@@ -16,6 +16,7 @@ from snapshot_store import (
     save_latest_for_cache,
     load_from_cache,
     _snapshots_differ,
+    _snapshot_to_timeseries_record,
 )
 
 
@@ -169,6 +170,50 @@ class TestSnapshotsDiffer(unittest.TestCase):
 
     def test_none_previous(self):
         self.assertTrue(_snapshots_differ(None, _sample_snapshot()))
+
+
+class TestSnapshotToTimeseriesRecord(unittest.TestCase):
+    """Synthetic timeseries record from current snapshot."""
+
+    def test_builds_record_with_name_and_votes(self):
+        snap = _sample_snapshot()
+        record = _snapshot_to_timeseries_record(snap)
+        self.assertIsNotNone(record)
+        self.assertEqual(record["ts"], snap["timestamp"])
+        names = {m["name"] for m in record["models"]}
+        self.assertIn("model-1", names)
+        for m in record["models"]:
+            self.assertIn("votes", m)
+            self.assertIn("name", m)
+
+    def test_returns_none_for_empty_snapshot(self):
+        self.assertIsNone(_snapshot_to_timeseries_record({}))
+        self.assertIsNone(_snapshot_to_timeseries_record({"timestamp": "x"}))
+        self.assertIsNone(
+            _snapshot_to_timeseries_record({"timestamp": "x", "models": []})
+        )
+
+    def test_record_usable_by_bulk_vote_rates(self):
+        """The synthetic record should produce non-zero rates when combined
+        with an earlier timeseries row."""
+        from projections import bulk_vote_rates, _parse_ts
+        snap = _sample_snapshot()
+        snap["timestamp"] = "2026-02-20T16:00:00Z"
+        record = _snapshot_to_timeseries_record(snap)
+
+        # Older row with fewer votes
+        older = {
+            "ts": "2026-02-19T16:00:00Z",
+            "models": [
+                {"name": "model-1", "votes": 500, "score": 1490, "ci": 10},
+                {"name": "model-2", "votes": 800, "score": 1480, "ci": 10},
+            ],
+        }
+        ts = [older, record]
+        rates = bulk_vote_rates(ts, {"model-1", "model-2"}, lookback_days=7.0,
+                                now=_parse_ts(snap["timestamp"]))
+        self.assertGreater(rates["model-1"], 0.0)
+        self.assertGreater(rates["model-2"], 0.0)
 
 
 if __name__ == "__main__":
