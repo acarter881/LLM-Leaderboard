@@ -235,6 +235,31 @@ def load_from_cache(cache_path: str | Path) -> dict | None:
         return None
 
 
+def _snapshot_to_timeseries_record(snapshot: dict) -> dict | None:
+    """Build a lightweight timeseries record from a snapshot.
+
+    Used to include the current snapshot's vote data in the rate
+    calculation before append_top_n writes the full record to disk.
+    """
+    ts = snapshot.get("timestamp")
+    models = snapshot.get("models", [])
+    if not ts or not models:
+        return None
+    compact_models = []
+    for m in models[:20]:
+        entry: dict = {"name": m.get("model_name"), "votes": m.get("votes")}
+        if entry["name"] is None:
+            continue
+        if m.get("score") is not None:
+            entry["score"] = m["score"]
+        if m.get("ci") is not None:
+            entry["ci"] = m["ci"]
+        compact_models.append(entry)
+    if not compact_models:
+        return None
+    return {"ts": ts, "models": compact_models}
+
+
 # ---------------------------------------------------------------------------
 # Storage orchestrator
 # ---------------------------------------------------------------------------
@@ -271,10 +296,15 @@ def store_snapshot(
         print(f"Warning: overtake probability enrichment failed: {exc}", file=sys.stderr)
 
     # Enrich with settlement projections (weekly + monthly).
+    # Include the current snapshot as a synthetic timeseries record so
+    # vote rates reflect the latest data (append_top_n runs later).
     try:
         from projections import enrich_snapshot_with_projections
         from snapshot_store import load_timeseries as _load_ts
         ts = _load_ts(timeseries_dir)
+        current_ts_record = _snapshot_to_timeseries_record(snapshot)
+        if current_ts_record:
+            ts.append(current_ts_record)
         enrich_snapshot_with_projections(snapshot, timeseries=ts)
     except Exception as exc:
         print(f"Warning: settlement projection enrichment failed: {exc}", file=sys.stderr)
