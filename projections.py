@@ -42,8 +42,12 @@ def next_settlement_date(
     """Compute the next Kalshi contract settlement date.
 
     Weekly contracts settle on Saturday.  Monthly contracts settle on the
-    last calendar day of the month.  Both settle at noon ET (17:00 UTC in
-    EST; this is an approximation — EDT would be 16:00 UTC).
+    last calendar day of the month.  Both settle at 10:00 AM ET per
+    Kalshi's market close rules.
+
+    10:00 AM ET = 15:00 UTC during EST (Nov–Mar) and 14:00 UTC during
+    EDT (Mar–Nov).  We use 15:00 UTC (EST) as the conservative default
+    so projections never overcount the time remaining.
 
     If *from_date* falls exactly on a settlement day but before the
     settlement hour, that same day is returned.
@@ -51,7 +55,7 @@ def next_settlement_date(
     if from_date is None:
         from_date = datetime.now(timezone.utc)
 
-    settlement_hour_utc = 17  # noon ET ≈ 17:00 UTC
+    settlement_hour_utc = 15  # 10:00 AM EST = 15:00 UTC
 
     if cadence == WEEKLY:
         days_ahead = (_SATURDAY - from_date.weekday()) % 7

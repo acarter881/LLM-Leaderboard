@@ -148,10 +148,10 @@ The `projections.py` module projects overtake probabilities forward to specific 
 
 **Contract cadences supported:**
 
-| Cadence | Settlement date | Kalshi series |
-|---------|----------------|---------------|
-| Weekly | Saturday | KXTOPMODEL |
-| Monthly | Last day of month | KXLLM1 |
+| Cadence | Settlement date | Close time | Kalshi series |
+|---------|----------------|------------|---------------|
+| Weekly | Saturday | 10:00 AM ET | KXTOPMODEL |
+| Monthly | Last day of month | 10:00 AM ET | KXLLM1 |
 
 Both cadences are computed automatically on every leaderboard update and included in Discord notifications.
 

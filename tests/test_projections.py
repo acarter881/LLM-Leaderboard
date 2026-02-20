@@ -25,23 +25,23 @@ class TestNextSettlementDate(unittest.TestCase):
     """Settlement date computation for weekly and monthly cadences."""
 
     def test_weekly_from_wednesday(self):
-        # Wednesday Feb 18 2026 12:00 UTC → Saturday Feb 21 2026 17:00 UTC
+        # Wednesday Feb 18 2026 12:00 UTC → Saturday Feb 21 2026 15:00 UTC
         wed = datetime(2026, 2, 18, 12, 0, 0, tzinfo=timezone.utc)
         result = next_settlement_date(WEEKLY, from_date=wed)
         self.assertEqual(result.weekday(), 5)  # Saturday
         self.assertEqual(result.day, 21)
-        self.assertEqual(result.hour, 17)
+        self.assertEqual(result.hour, 15)  # 10:00 AM EST
 
     def test_weekly_from_saturday_before_settlement_hour(self):
-        # Saturday Feb 21 2026 10:00 UTC (before 17:00) → same day
+        # Saturday Feb 21 2026 10:00 UTC (before 15:00) → same day
         sat_early = datetime(2026, 2, 21, 10, 0, 0, tzinfo=timezone.utc)
         result = next_settlement_date(WEEKLY, from_date=sat_early)
         self.assertEqual(result.day, 21)
-        self.assertEqual(result.hour, 17)
+        self.assertEqual(result.hour, 15)
 
     def test_weekly_from_saturday_after_settlement_hour(self):
-        # Saturday Feb 21 2026 18:00 UTC (after 17:00) → next Saturday
-        sat_late = datetime(2026, 2, 21, 18, 0, 0, tzinfo=timezone.utc)
+        # Saturday Feb 21 2026 16:00 UTC (after 15:00) → next Saturday
+        sat_late = datetime(2026, 2, 21, 16, 0, 0, tzinfo=timezone.utc)
         result = next_settlement_date(WEEKLY, from_date=sat_late)
         self.assertEqual(result.day, 28)
         self.assertEqual(result.weekday(), 5)
@@ -54,14 +54,14 @@ class TestNextSettlementDate(unittest.TestCase):
         self.assertEqual(result.day, 28)
 
     def test_monthly_last_day_after_settlement_rolls_forward(self):
-        # Feb 28 2026 18:00 UTC (after settlement) → March 31 2026
-        end_feb = datetime(2026, 2, 28, 18, 0, 0, tzinfo=timezone.utc)
+        # Feb 28 2026 16:00 UTC (after 15:00 settlement) → March 31 2026
+        end_feb = datetime(2026, 2, 28, 16, 0, 0, tzinfo=timezone.utc)
         result = next_settlement_date(MONTHLY, from_date=end_feb)
         self.assertEqual(result.month, 3)
         self.assertEqual(result.day, 31)
 
     def test_monthly_december_rolls_to_january(self):
-        dec = datetime(2025, 12, 31, 18, 0, 0, tzinfo=timezone.utc)
+        dec = datetime(2025, 12, 31, 16, 0, 0, tzinfo=timezone.utc)
         result = next_settlement_date(MONTHLY, from_date=dec)
         self.assertEqual(result.year, 2026)
         self.assertEqual(result.month, 1)
