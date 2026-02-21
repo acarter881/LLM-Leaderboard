@@ -64,17 +64,24 @@ $baseArgs = @(
 ) + $extraFlags
 
 $restartDelay = 30
+$centralTz = [TimeZoneInfo]::FindSystemTimeZoneById("Central Standard Time")
+
+function Get-CentralTime {
+    $ct = [TimeZoneInfo]::ConvertTimeFromUtc([DateTime]::UtcNow, $centralTz)
+    $abbr = if ($centralTz.IsDaylightSavingTime($ct)) { "CDT" } else { "CST" }
+    return "$($ct.ToString('yyyy-MM-dd HH:mm:ss')) $abbr"
+}
 
 Write-Host "Polling every ${interval}s with crash monitoring. Press Ctrl+C to stop."
 
 while ($true) {
-    $startTime = Get-Date -Format u
+    $startTime = Get-CentralTime
     Write-Host "`nStarting leaderboard_notifier.py at $startTime"
 
     python @baseArgs
     $exitCode = $LASTEXITCODE
 
-    $timestamp = Get-Date -Format u
+    $timestamp = Get-CentralTime
     Write-Host "leaderboard_notifier.py exited with code $exitCode at $timestamp" -ForegroundColor Red
 
     # Send a Discord alert about the crash
