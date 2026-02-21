@@ -14,6 +14,7 @@ import sys
 import textwrap
 import time
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from html import unescape
 from pathlib import Path
 from typing import Callable, TypeVar
@@ -814,7 +815,9 @@ def main() -> int:
     check_count = 0
     while True:
         check_count += 1
-        print(f"\n--- Check {check_count} at {datetime.now(timezone.utc).strftime('%H:%M:%S UTC')} ---")
+        _ct = datetime.now(ZoneInfo("America/Chicago"))
+        _ct_abbr = _ct.strftime("%Z")  # CST or CDT
+        print(f"\n--- Check {check_count} at {_ct.strftime('%H:%M:%S')} {_ct_abbr} ---")
         try:
             result = run_single_check(args)
         except Exception as exc:
