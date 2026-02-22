@@ -327,6 +327,22 @@ class TestFormatProjections(unittest.TestCase):
         self.assertIn("Weekly", text)
         self.assertIn("Monthly", text)
 
+    def test_format_dedup_when_same_settlement_date(self):
+        """When weekly and monthly settle on the same day, show one combined section."""
+        # Saturday Feb 28 2026 is both the last day of month AND a Saturday.
+        now = datetime(2026, 2, 25, 12, 0, 0, tzinfo=timezone.utc)
+        snapshot = {
+            "models": [
+                {"rank": 1, "model_name": "A", "score": 1350, "ci": 8, "votes": 5000},
+                {"rank": 2, "model_name": "B", "score": 1340, "ci": 10, "votes": 4000},
+            ],
+        }
+        by_cadence = enrich_snapshot_with_projections(snapshot, now=now)
+        text = format_all_projections(by_cadence)
+        # Should show the combined header, not separate Weekly + Monthly.
+        self.assertIn("Weekly & Monthly", text)
+        self.assertEqual(text.count("Settlement Projections"), 1)
+
     def test_format_empty_returns_empty(self):
         data = compute_settlement_projections({"models": []}, cadence=WEEKLY)
         self.assertEqual(format_projections_section(data), "")

@@ -431,6 +431,7 @@ def format_projections_section(
     projections_data: dict,
     threshold: float = 0.0001,
     max_lines: int = 5,
+    header_override: Optional[str] = None,
 ) -> str:
     """Format one cadence's projections as a Discord message section.
 
@@ -439,6 +440,8 @@ def format_projections_section(
             for a single cadence.
         threshold: Minimum probability to show individually.
         max_lines: Maximum model lines to include.
+        header_override: If set, replaces the "Weekly"/"Monthly" label
+            (used when both cadences share the same date).
 
     Returns:
         A string section ready to append to a Discord message, or ""
@@ -452,7 +455,7 @@ def format_projections_section(
     label = projections_data.get("settlement_label", "?")
     days_left = projections_data.get("days_remaining", 0)
     cadence = projections_data.get("cadence", "?")
-    header_tag = "Weekly" if cadence == WEEKLY else "Monthly"
+    header_tag = header_override or ("Weekly" if cadence == WEEKLY else "Monthly")
 
     lines: list[str] = []
     lines.append(
@@ -531,14 +534,33 @@ def format_all_projections(
         Combined string of all cadence sections.
     """
     parts: list[str] = []
-    for cadence in (WEEKLY, MONTHLY):
-        data = projections_by_cadence.get(cadence)
-        if data:
+    weekly_data = projections_by_cadence.get(WEEKLY)
+    monthly_data = projections_by_cadence.get(MONTHLY)
+
+    # If both cadences settle on the same date, show only the monthly
+    # section (with a note) to avoid duplicative output.
+    weekly_date = weekly_data.get("settlement_date") if weekly_data else None
+    monthly_date = monthly_data.get("settlement_date") if monthly_data else None
+    same_date = weekly_date and monthly_date and weekly_date == monthly_date
+
+    if same_date:
+        # Show monthly only, with a note that weekly coincides.
+        if monthly_data:
             section = format_projections_section(
-                data, threshold=threshold, max_lines=max_lines,
+                monthly_data, threshold=threshold, max_lines=max_lines,
+                header_override="Weekly & Monthly",
             )
             if section:
                 parts.append(section)
+    else:
+        for cadence in (WEEKLY, MONTHLY):
+            data = projections_by_cadence.get(cadence)
+            if data:
+                section = format_projections_section(
+                    data, threshold=threshold, max_lines=max_lines,
+                )
+                if section:
+                    parts.append(section)
     return "\n".join(parts)
 
 

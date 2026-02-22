@@ -103,6 +103,7 @@ def compute_diff(previous: dict, current: dict) -> dict:
                 "previous_score": prev_score,
                 "current_score": curr_score,
                 "delta": curr_score - prev_score,
+                "current_rank": curr_m.get("rank"),
             })
 
         # CI changes
@@ -261,15 +262,19 @@ def format_discord_message(
                 f"  {arrow} {c['model_name']}: #{c['previous_rank']} → #{c['current_rank']} ({_sign(-c['delta'])})"
             )
 
-    # Score changes (top N only)
+    # Score changes — only models in contention for #1 (top 5 by rank)
     score_changes = diff.get("score_changes", [])
     if score_changes:
-        # Filter to models in top N by current snapshot rank
-        top_score_changes = sorted(score_changes, key=lambda c: abs(c.get("delta", 0)), reverse=True)[:top_n]
-        if top_score_changes:
+        contention_cutoff = 5
+        contention_changes = [
+            c for c in score_changes
+            if c.get("current_rank") is not None and c["current_rank"] <= contention_cutoff
+        ]
+        contention_changes.sort(key=lambda c: c.get("current_rank", 999))
+        if contention_changes:
             sections.append("")
-            sections.append(f"**Score Changes (Top {top_n} by magnitude):**")
-            for c in top_score_changes:
+            sections.append("**Score Changes (Top Contenders):**")
+            for c in contention_changes:
                 sections.append(
                     f"  {c['model_name']}: {c['previous_score']} → {c['current_score']} ({_sign(c['delta'])})"
                 )
@@ -325,10 +330,6 @@ def format_discord_message(
                 sections.append(proj_section)
         except Exception:
             pass
-
-    # Footer
-    sections.append("")
-    sections.append(f"URL: {url}")
 
     message = "\n".join(sections)
     return _truncate(message, MAX_DISCORD_MESSAGE_LENGTH, url)
@@ -428,7 +429,6 @@ def format_snapshot_message(
 
     sections.append("")
     sections.append("(No prior structured snapshot for detailed diff.)")
-    sections.append(f"URL: {url}")
 
     message = "\n".join(sections)
     return _truncate(message, MAX_DISCORD_MESSAGE_LENGTH, url)
