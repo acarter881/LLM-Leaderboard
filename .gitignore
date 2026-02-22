@@ -8,6 +8,9 @@ leaderboard_state.json
 .local_state/
 .env
 
+# Generated dashboard
+dashboard.html
+
 # Cached GitHub Actions state (structured_snapshot.json is committed for
 # persistence; other state files remain ignored)
 .github/state/leaderboard_state.json

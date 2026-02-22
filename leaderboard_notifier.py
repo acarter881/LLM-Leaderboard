@@ -780,6 +780,14 @@ def run_single_check(args: argparse.Namespace) -> int:
         state_updates["snapshot"] = current_snapshot
     state.update(state_updates)
     save_state(args.state_file, state)
+
+    # Regenerate dashboard after each successful check.
+    try:
+        from dashboard import generate_dashboard
+        generate_dashboard()
+    except Exception as exc:
+        print(f"Warning: dashboard generation failed: {exc}", file=sys.stderr)
+
     return 0
 
 
