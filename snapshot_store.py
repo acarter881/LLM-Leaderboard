@@ -157,6 +157,18 @@ def append_top_n(
     if overtake and overtake.get("leader"):
         record["leader_prob_staying_1"] = overtake["leader"].get("prob_staying_1")
 
+    # Include head-to-head win rates if available.
+    h2h = snapshot.get("h2h")
+    if h2h and h2h.get("matchups"):
+        record["h2h_top5"] = [
+            {
+                "name": m.get("model_name"),
+                "wr": round(m.get("win_rate_vs_leader", 0), 4),
+                "gap": m.get("score_gap"),
+            }
+            for m in h2h["matchups"][:5]
+        ]
+
     # Include settlement projection summaries if available.
     projections = snapshot.get("projections")
     if projections:
