@@ -709,10 +709,12 @@ def run_single_check(args: argparse.Namespace) -> int:
             if use_structured and structured_diff and has_changes(structured_diff):
                 overtake_data = structured_snapshot.get("overtake") if structured_snapshot else None
                 projections_data = structured_snapshot.get("projections") if structured_snapshot else None
+                h2h_data = structured_snapshot.get("h2h") if structured_snapshot else None
                 message = format_discord_message(
                     structured_diff, args.url,
                     overtake_data=overtake_data,
                     projections_data=projections_data,
+                    h2h_data=h2h_data,
                 )
             elif use_structured and structured_snapshot and structured_snapshot.get("models"):
                 # Structured snapshot exists but no diff (e.g. cache miss) —

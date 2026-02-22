@@ -193,6 +193,95 @@ def enrich_snapshot(snapshot: dict, top_n: int = 20) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Head-to-head win rate (Bradley-Terry)
+# ---------------------------------------------------------------------------
+
+_ELO_SCALE = 400
+
+
+def head_to_head_win_rate(score_a: float, score_b: float) -> float:
+    """Predicted probability that model A beats model B in a single battle.
+
+    Uses the Bradley-Terry / Elo formula:
+      P(A beats B) = 1 / (1 + 10^((score_B - score_A) / 400))
+    """
+    return 1.0 / (1.0 + 10 ** ((score_b - score_a) / _ELO_SCALE))
+
+
+def compute_h2h_vs_leader(
+    snapshot: dict,
+    top_n: int = 5,
+) -> dict:
+    """Compute head-to-head predicted win rates for top models vs #1.
+
+    Returns a dict with ``leader`` info and a ``matchups`` list, each entry
+    containing the predicted H2H win rate of the leader against that model.
+    """
+    models = snapshot.get("models", [])
+    if not models:
+        return {"leader": None, "matchups": []}
+
+    leader = models[0]
+    leader_score = leader.get("score")
+    if leader_score is None:
+        return {"leader": None, "matchups": []}
+
+    matchups: list[dict] = []
+    for m in models[1:top_n]:
+        score = m.get("score")
+        if score is None:
+            continue
+        # Win rate of the challenger against the leader.
+        challenger_wr = head_to_head_win_rate(score, leader_score)
+        matchups.append({
+            "model_name": m.get("model_name"),
+            "rank": m.get("rank"),
+            "score": score,
+            "win_rate_vs_leader": round(challenger_wr, 4),
+            "score_gap": leader_score - score,
+        })
+
+    return {
+        "leader": {
+            "model_name": leader.get("model_name"),
+            "score": leader_score,
+        },
+        "matchups": matchups,
+    }
+
+
+def enrich_snapshot_with_h2h(snapshot: dict, top_n: int = 5) -> dict:
+    """Add ``h2h`` field to *snapshot* (in-place)."""
+    data = compute_h2h_vs_leader(snapshot, top_n=top_n)
+    snapshot["h2h"] = data
+    return data
+
+
+def format_h2h_section(h2h_data: dict) -> str:
+    """Format head-to-head win rates as a Discord message section."""
+    leader = h2h_data.get("leader")
+    matchups = h2h_data.get("matchups", [])
+    if not leader or not matchups:
+        return ""
+
+    leader_name = leader.get("model_name", "?")
+    lines: list[str] = []
+    lines.append(f"\n**Head-to-Head Win Rates (vs #1 {leader_name}):**")
+    for m in matchups:
+        rank = m.get("rank", "?")
+        name = m["model_name"]
+        wr = m["win_rate_vs_leader"]
+        gap = m["score_gap"]
+        wr_pct = f"{wr * 100:.1f}%"
+        gap_str = f"{gap:+d}pt" if isinstance(gap, int) else f"{gap:+.0f}pt"
+        # Highlight if challenger is favored (>50%).
+        marker = " \u2191" if wr > 0.50 else ""
+        lines.append(f"  #{rank} {name}: {wr_pct}{marker} ({gap_str})")
+
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
 # Discord formatting
 # ---------------------------------------------------------------------------
 

@@ -15,6 +15,10 @@ from overtake_probability import (
     compute_all_overtake_probabilities,
     enrich_snapshot,
     format_overtake_section,
+    head_to_head_win_rate,
+    compute_h2h_vs_leader,
+    enrich_snapshot_with_h2h,
+    format_h2h_section,
 )
 
 
@@ -329,3 +333,101 @@ class TestFormatOvertakeSection:
         text = format_overtake_section(data, threshold=0.05)
         # far-behind has negligible probability, should be filtered
         assert "far-behind" not in text or "All others" in text
+
+
+# ---------------------------------------------------------------------------
+# Head-to-head win rate tests
+# ---------------------------------------------------------------------------
+
+class TestHeadToHeadWinRate:
+    def test_equal_scores_give_50_percent(self):
+        assert head_to_head_win_rate(1500, 1500) == pytest.approx(0.5)
+
+    def test_higher_score_favored(self):
+        wr = head_to_head_win_rate(1514, 1500)
+        assert wr > 0.5
+        # ~14pt gap ≈ 52%
+        assert wr == pytest.approx(0.52, abs=0.005)
+
+    def test_lower_score_unfavored(self):
+        wr = head_to_head_win_rate(1486, 1500)
+        assert wr < 0.5
+
+    def test_symmetry(self):
+        wr_a = head_to_head_win_rate(1510, 1490)
+        wr_b = head_to_head_win_rate(1490, 1510)
+        assert wr_a + wr_b == pytest.approx(1.0)
+
+    def test_large_gap_strongly_favored(self):
+        wr = head_to_head_win_rate(1600, 1400)
+        # 200pt gap → ~76% (Elo scale of 400)
+        assert wr > 0.75
+
+
+class TestComputeH2hVsLeader:
+    def test_basic_matchups(self):
+        snapshot = _make_snapshot([
+            ("leader", 1, 1504, 8),
+            ("chal-a", 2, 1501, 10),
+            ("chal-b", 3, 1490, 12),
+        ])
+        data = compute_h2h_vs_leader(snapshot, top_n=5)
+        assert data["leader"]["model_name"] == "leader"
+        assert len(data["matchups"]) == 2
+        assert data["matchups"][0]["model_name"] == "chal-a"
+        # chal-a is 3pts behind → slightly under 50%
+        assert data["matchups"][0]["win_rate_vs_leader"] < 0.50
+
+    def test_top_n_respected(self):
+        models = [("leader", 1, 1504, 8)]
+        for i in range(2, 10):
+            models.append((f"m{i}", i, 1490, 10))
+        data = compute_h2h_vs_leader(_make_snapshot(models), top_n=3)
+        assert len(data["matchups"]) == 2  # top_n=3 means leader + 2
+
+    def test_empty_snapshot(self):
+        data = compute_h2h_vs_leader({"models": []})
+        assert data["leader"] is None
+        assert data["matchups"] == []
+
+
+class TestEnrichSnapshotWithH2h:
+    def test_adds_h2h_field(self):
+        snapshot = _make_snapshot([
+            ("leader", 1, 1504, 8),
+            ("chal", 2, 1490, 10),
+        ])
+        enrich_snapshot_with_h2h(snapshot)
+        assert "h2h" in snapshot
+        assert snapshot["h2h"]["leader"]["model_name"] == "leader"
+
+
+class TestFormatH2hSection:
+    def test_empty_returns_empty(self):
+        assert format_h2h_section({"leader": None, "matchups": []}) == ""
+
+    def test_includes_leader_name(self):
+        data = compute_h2h_vs_leader(_make_snapshot([
+            ("the-boss", 1, 1504, 8),
+            ("contender", 2, 1490, 10),
+        ]))
+        text = format_h2h_section(data)
+        assert "the-boss" in text
+        assert "Head-to-Head" in text
+
+    def test_favored_model_gets_arrow(self):
+        # Give challenger a higher score than leader
+        data = compute_h2h_vs_leader(_make_snapshot([
+            ("leader", 1, 1490, 8),
+            ("hot-model", 2, 1504, 10),
+        ]))
+        text = format_h2h_section(data)
+        assert "\u2191" in text  # up arrow for >50%
+
+    def test_score_gap_shown(self):
+        data = compute_h2h_vs_leader(_make_snapshot([
+            ("leader", 1, 1504, 8),
+            ("chal", 2, 1490, 10),
+        ]))
+        text = format_h2h_section(data)
+        assert "pt" in text
