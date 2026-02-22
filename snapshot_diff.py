@@ -191,7 +191,6 @@ def format_discord_message(
     top_n: int = 10,
     overtake_data: dict | None = None,
     projections_data: dict | None = None,
-    h2h_data: dict | None = None,
 ) -> str:
     """Format a structured diff as a rich Discord notification.
 
@@ -200,9 +199,6 @@ def format_discord_message(
 
     If *overtake_data* (output of ``compute_all_overtake_probabilities``)
     is provided, an overtake-probability section is appended.
-
-    If *h2h_data* (output of ``compute_h2h_vs_leader``) is provided,
-    a head-to-head win rate section is appended.
 
     If *projections_data* (output of ``enrich_snapshot_with_projections``)
     is provided, settlement projection sections are appended.
@@ -322,16 +318,6 @@ def format_discord_message(
             overtake_section = format_overtake_section(overtake_data)
             if overtake_section:
                 sections.append(overtake_section)
-        except Exception:
-            pass
-
-    # Head-to-head win rates
-    if h2h_data:
-        try:
-            from overtake_probability import format_h2h_section
-            h2h_section = format_h2h_section(h2h_data)
-            if h2h_section:
-                sections.append(h2h_section)
         except Exception:
             pass
 
