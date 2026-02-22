@@ -24,6 +24,7 @@ class TestExtractChartData(unittest.TestCase):
         data = extract_chart_data([])
         self.assertEqual(data["timestamps"], [])
         self.assertEqual(data["models"], {})
+        self.assertEqual(data["chart_models"], {"top": [], "overtake": [], "h2h": []})
 
     def test_extracts_model_scores(self):
         records = [
@@ -86,8 +87,47 @@ class TestExtractChartData(unittest.TestCase):
         models = [{"rank": i, "name": f"model-{i}", "score": 1500 - i} for i in range(1, 25)]
         records = [_make_record("2026-02-18T12:00:00Z", models)]
         data = extract_chart_data(records, top_n=5)
-        # Only the top 5 models should be included.
+        # Only the top 5 models should be in data and in chart_models.top.
         self.assertEqual(len(data["models"]), 5)
+        self.assertEqual(len(data["chart_models"]["top"]), 5)
+        self.assertEqual(data["chart_models"]["top"][0], "model-1")
+
+    def test_chart_models_separates_overtake_from_top(self):
+        """Overtake-only models should NOT appear in the top chart list."""
+        records = [
+            _make_record(
+                "2026-02-18T12:00:00Z",
+                [
+                    {"rank": 1, "name": "Alpha", "score": 1500, "ci": 8, "votes": 5000},
+                    {"rank": 2, "name": "Beta", "score": 1490, "ci": 10, "votes": 4000},
+                ],
+                overtake=[{"name": "Gamma", "prob": 0.20, "gap": 10}],
+            ),
+        ]
+        data = extract_chart_data(records, top_n=5)
+        # Gamma is in overtake chart but NOT in top charts.
+        self.assertIn("Gamma", data["chart_models"]["overtake"])
+        self.assertNotIn("Gamma", data["chart_models"]["top"])
+        # Gamma's data is still collected for the overtake chart.
+        self.assertIn("Gamma", data["overtake"])
+
+    def test_overtake_filters_negligible_probability(self):
+        """Models with overtake prob <= 1% are excluded from overtake chart."""
+        records = [
+            _make_record(
+                "2026-02-18T12:00:00Z",
+                [{"rank": 1, "name": "Alpha", "score": 1500}],
+                overtake=[
+                    {"name": "Strong", "prob": 0.35, "gap": 5},
+                    {"name": "Weak", "prob": 0.001, "gap": 50},
+                    {"name": "Zero", "prob": 0.0, "gap": 100},
+                ],
+            ),
+        ]
+        data = extract_chart_data(records, top_n=5)
+        self.assertIn("Strong", data["chart_models"]["overtake"])
+        self.assertNotIn("Weak", data["chart_models"]["overtake"])
+        self.assertNotIn("Zero", data["chart_models"]["overtake"])
 
 
 class TestGenerateDashboard(unittest.TestCase):

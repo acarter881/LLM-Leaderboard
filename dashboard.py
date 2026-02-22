@@ -22,7 +22,7 @@ from pathlib import Path
 from snapshot_store import load_timeseries, DEFAULT_TIMESERIES_DIR
 
 DEFAULT_OUTPUT = "dashboard.html"
-DEFAULT_TOP_N = 10
+DEFAULT_TOP_N = 5
 
 
 # ---------------------------------------------------------------------------
@@ -39,41 +39,48 @@ def extract_chart_data(
     of timestamps and per-model data series.
     """
     if not timeseries:
-        return {"timestamps": [], "models": {}, "overtake": {}, "leader_prob": []}
+        return {
+            "timestamps": [], "models": {}, "overtake": {},
+            "leader_prob": [], "h2h": {},
+            "chart_models": {"top": [], "overtake": [], "h2h": []},
+        }
 
     timestamps: list[str] = []
-    # model_name -> list of {score, rank, ci, votes} per timestamp (None if absent)
     model_data: dict[str, list[dict | None]] = {}
-    # model_name -> list of overtake prob per timestamp
     overtake_data: dict[str, list[float | None]] = {}
-    # leader probability of staying #1
     leader_prob: list[float | None] = []
-    # H2H win rates: model_name -> list of win rate per timestamp
     h2h_data: dict[str, list[float | None]] = {}
 
-    # Collect all model names that ever appeared in top N.
-    all_model_names: set[str] = set()
-    for record in timeseries:
-        for m in record.get("models", [])[:top_n]:
-            name = m.get("name")
-            if name:
-                all_model_names.add(name)
+    # --- Per-chart model selection ---
 
-    # Also collect all model names from overtake data.
+    # Main charts (score, rank, votes, CI): top N from the LATEST snapshot.
+    latest = timeseries[-1]
+    top_model_names: list[str] = []
+    for m in latest.get("models", [])[:top_n]:
+        name = m.get("name")
+        if name:
+            top_model_names.append(name)
+
+    # Overtake chart: only models with meaningful probability (>1%).
+    overtake_model_names: set[str] = set()
     for record in timeseries:
         for o in record.get("overtake_top5", []):
             name = o.get("name")
-            if name:
-                all_model_names.add(name)
+            prob = o.get("prob", 0)
+            if name and prob and prob > 0.01:
+                overtake_model_names.add(name)
 
-    # Also collect H2H model names.
+    # H2H chart: only models that appear in H2H data.
+    h2h_model_names: set[str] = set()
     for record in timeseries:
         for h in record.get("h2h_top5", []):
             name = h.get("name")
             if name:
-                all_model_names.add(name)
+                h2h_model_names.add(name)
 
-    # Initialize data structures.
+    # Collect data for the union of all chart-relevant models.
+    all_model_names = set(top_model_names) | overtake_model_names | h2h_model_names
+
     for name in all_model_names:
         model_data[name] = []
         overtake_data[name] = []
@@ -83,14 +90,12 @@ def extract_chart_data(
         ts = record.get("ts", "")
         timestamps.append(ts)
 
-        # Build lookup for this record's models.
         record_models = {}
         for m in record.get("models", []):
             name = m.get("name")
             if name:
                 record_models[name] = m
 
-        # Fill model data.
         for name in all_model_names:
             m = record_models.get(name)
             if m:
@@ -103,7 +108,6 @@ def extract_chart_data(
             else:
                 model_data[name].append(None)
 
-        # Overtake data.
         overtake_lookup = {}
         for o in record.get("overtake_top5", []):
             if o.get("name"):
@@ -111,10 +115,8 @@ def extract_chart_data(
         for name in all_model_names:
             overtake_data[name].append(overtake_lookup.get(name))
 
-        # Leader prob.
         leader_prob.append(record.get("leader_prob_staying_1"))
 
-        # H2H data.
         h2h_lookup = {}
         for h in record.get("h2h_top5", []):
             if h.get("name"):
@@ -128,6 +130,11 @@ def extract_chart_data(
         "overtake": overtake_data,
         "leader_prob": leader_prob,
         "h2h": h2h_data,
+        "chart_models": {
+            "top": top_model_names,
+            "overtake": sorted(overtake_model_names),
+            "h2h": sorted(h2h_model_names),
+        },
     }
 
 
@@ -250,15 +257,10 @@ const COLORS = [
 
 function getColor(i) { return COLORS[i %% COLORS.length]; }
 
-// Filter to models that have at least one non-null value for a given field.
-function modelsWithData(field) {
-  const names = Object.keys(DATA.models);
-  return names.filter(name => {
-    if (field === 'overtake') return DATA.overtake[name] && DATA.overtake[name].some(v => v != null);
-    if (field === 'h2h') return DATA.h2h[name] && DATA.h2h[name].some(v => v != null);
-    return DATA.models[name] && DATA.models[name].some(v => v != null);
-  });
-}
+// Per-chart model lists — each chart only shows relevant models.
+const TOP_MODELS = DATA.chart_models && DATA.chart_models.top || [];
+const OVERTAKE_MODELS = DATA.chart_models && DATA.chart_models.overtake || [];
+const H2H_MODELS = DATA.chart_models && DATA.chart_models.h2h || [];
 
 function extractField(modelName, field) {
   return DATA.models[modelName].map(d => d ? d[field] : null);
@@ -266,7 +268,7 @@ function extractField(modelName, field) {
 
 // --- Score chart ---
 (function() {
-  const names = modelsWithData('score');
+  const names = TOP_MODELS;
   const traces = names.map((name, i) => ({
     x: DATA.timestamps,
     y: extractField(name, 'score'),
@@ -285,7 +287,7 @@ function extractField(modelName, field) {
 
 // --- Rank chart (inverted y-axis) ---
 (function() {
-  const names = modelsWithData('rank');
+  const names = TOP_MODELS;
   const traces = names.map((name, i) => ({
     x: DATA.timestamps,
     y: extractField(name, 'rank'),
@@ -304,7 +306,7 @@ function extractField(modelName, field) {
 
 // --- Overtake probability chart ---
 (function() {
-  const names = modelsWithData('overtake');
+  const names = OVERTAKE_MODELS;
   const traces = names.map((name, i) => ({
     x: DATA.timestamps,
     y: DATA.overtake[name].map(v => v != null ? v * 100 : null),
@@ -323,7 +325,7 @@ function extractField(modelName, field) {
 
 // --- Votes chart ---
 (function() {
-  const names = modelsWithData('votes');
+  const names = TOP_MODELS;
   const traces = names.map((name, i) => ({
     x: DATA.timestamps,
     y: extractField(name, 'votes'),
@@ -342,7 +344,7 @@ function extractField(modelName, field) {
 
 // --- CI chart ---
 (function() {
-  const names = modelsWithData('ci');
+  const names = TOP_MODELS;
   const traces = names.map((name, i) => ({
     x: DATA.timestamps,
     y: extractField(name, 'ci'),
@@ -361,7 +363,7 @@ function extractField(modelName, field) {
 
 // --- H2H win rate chart ---
 (function() {
-  const names = modelsWithData('h2h');
+  const names = H2H_MODELS;
   if (names.length === 0) {
     document.getElementById('chart-h2h').innerHTML =
       '<p style="text-align:center;color:#888;padding:40px;">No H2H data yet — will appear after next leaderboard update.</p>';
