@@ -295,6 +295,13 @@ def store_snapshot(
     except Exception as exc:
         print(f"Warning: overtake probability enrichment failed: {exc}", file=sys.stderr)
 
+    # Enrich with head-to-head win rates (top 5 vs leader).
+    try:
+        from overtake_probability import enrich_snapshot_with_h2h
+        enrich_snapshot_with_h2h(snapshot)
+    except Exception as exc:
+        print(f"Warning: H2H win rate enrichment failed: {exc}", file=sys.stderr)
+
     # Enrich with settlement projections (weekly + monthly).
     # Include the current snapshot as a synthetic timeseries record so
     # vote rates reflect the latest data (append_top_n runs later).
