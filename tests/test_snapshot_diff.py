@@ -167,10 +167,29 @@ class TestFormatDiscordMessage(unittest.TestCase):
         self.assertIn("New Models", msg)
         self.assertIn("new-model", msg)
 
-    def test_message_includes_url(self):
+    def test_message_does_not_include_url(self):
         diff = compute_diff(_make_snapshot([]), _make_snapshot([]))
         msg = format_discord_message(diff, "https://arena.ai/leaderboard")
-        self.assertIn("https://arena.ai/leaderboard", msg)
+        self.assertNotIn("URL:", msg)
+
+    def test_score_changes_only_top_contenders(self):
+        """Score changes for models ranked > 5 should be excluded."""
+        prev = _make_snapshot([
+            _model("leader", 1, score=1500),
+            _model("contender", 3, score=1480),
+            _model("also-ran", 8, score=1420),
+        ])
+        curr = _make_snapshot([
+            _model("leader", 1, score=1502),
+            _model("contender", 3, score=1483),
+            _model("also-ran", 8, score=1425),
+        ])
+        diff = compute_diff(prev, curr)
+        msg = format_discord_message(diff, "https://example.com")
+        self.assertIn("contender", msg)
+        self.assertIn("leader", msg)
+        self.assertNotIn("also-ran", msg)
+        self.assertIn("Top Contenders", msg)
 
 
 class TestFormatDiffSummary(unittest.TestCase):
