@@ -23,10 +23,56 @@ class TestExtractChartData(unittest.TestCase):
     def test_empty_timeseries(self):
         data = extract_chart_data([])
         self.assertEqual(data["timestamps"], [])
-        self.assertEqual(data["models"], {})
-        self.assertEqual(data["chart_models"], {"top": [], "overtake": [], "h2h": []})
+        self.assertIsNone(data["leader"])
+        self.assertEqual(data["contenders"], [])
 
-    def test_extracts_model_scores(self):
+    def test_identifies_leader(self):
+        records = [
+            _make_record("2026-02-18T12:00:00Z", [
+                {"rank": 1, "name": "Alpha", "score": 1500, "ci": 8, "votes": 5000},
+                {"rank": 2, "name": "Beta", "score": 1490, "ci": 10, "votes": 4000},
+            ]),
+        ]
+        data = extract_chart_data(records)
+        self.assertEqual(data["leader"], "Alpha")
+
+    def test_contenders_from_overtake(self):
+        """Models with overtake prob > 1% become contenders."""
+        records = [
+            _make_record(
+                "2026-02-18T12:00:00Z",
+                [
+                    {"rank": 1, "name": "Alpha", "score": 1500, "ci": 8, "votes": 5000},
+                    {"rank": 2, "name": "Beta", "score": 1490, "ci": 10, "votes": 4000},
+                    {"rank": 3, "name": "Gamma", "score": 1480, "ci": 9, "votes": 3000},
+                ],
+                overtake=[
+                    {"name": "Beta", "prob": 0.35, "gap": 10},
+                    {"name": "Gamma", "prob": 0.001, "gap": 20},
+                ],
+            ),
+        ]
+        data = extract_chart_data(records)
+        # Beta is a contender (35%); Gamma is not (0.1%).
+        self.assertIn("Beta", data["contenders"])
+        self.assertNotIn("Gamma", data["contenders"])
+        # Leader is never a contender.
+        self.assertNotIn("Alpha", data["contenders"])
+
+    def test_fallback_contenders_without_overtake_data(self):
+        """Without overtake data, #2 and #3 become contenders."""
+        records = [
+            _make_record("2026-02-18T12:00:00Z", [
+                {"rank": 1, "name": "Alpha", "score": 1500, "ci": 8, "votes": 5000},
+                {"rank": 2, "name": "Beta", "score": 1490, "ci": 10, "votes": 4000},
+                {"rank": 3, "name": "Gamma", "score": 1480, "ci": 9, "votes": 3000},
+                {"rank": 4, "name": "Delta", "score": 1470, "ci": 7, "votes": 2000},
+            ]),
+        ]
+        data = extract_chart_data(records)
+        self.assertEqual(data["contenders"], ["Beta", "Gamma"])
+
+    def test_score_gap_computation(self):
         records = [
             _make_record("2026-02-18T12:00:00Z", [
                 {"rank": 1, "name": "Alpha", "score": 1500, "ci": 8, "votes": 5000},
@@ -34,17 +80,68 @@ class TestExtractChartData(unittest.TestCase):
             ]),
             _make_record("2026-02-19T12:00:00Z", [
                 {"rank": 1, "name": "Alpha", "score": 1502, "ci": 7, "votes": 5500},
-                {"rank": 2, "name": "Beta", "score": 1492, "ci": 9, "votes": 4400},
+                {"rank": 2, "name": "Beta", "score": 1498, "ci": 9, "votes": 4400},
             ]),
         ]
-        data = extract_chart_data(records, top_n=5)
-        self.assertEqual(len(data["timestamps"]), 2)
-        self.assertIn("Alpha", data["models"])
-        self.assertIn("Beta", data["models"])
-        self.assertEqual(data["models"]["Alpha"][0]["score"], 1500)
-        self.assertEqual(data["models"]["Alpha"][1]["score"], 1502)
+        data = extract_chart_data(records)
+        # Gap = leader - contender: 10, then 4 (Beta catching up).
+        self.assertEqual(data["score_gap"]["Beta"], [10, 4])
 
-    def test_model_absent_in_some_records(self):
+    def test_votes_includes_leader(self):
+        records = [
+            _make_record("2026-02-18T12:00:00Z", [
+                {"rank": 1, "name": "Alpha", "score": 1500, "ci": 8, "votes": 5000},
+                {"rank": 2, "name": "Beta", "score": 1490, "ci": 10, "votes": 4000},
+            ]),
+        ]
+        data = extract_chart_data(records)
+        # Both leader and contender should have vote data.
+        self.assertEqual(data["votes"]["Alpha"], [5000])
+        self.assertEqual(data["votes"]["Beta"], [4000])
+
+    def test_ci_includes_leader(self):
+        records = [
+            _make_record("2026-02-18T12:00:00Z", [
+                {"rank": 1, "name": "Alpha", "score": 1500, "ci": 8, "votes": 5000},
+                {"rank": 2, "name": "Beta", "score": 1490, "ci": 10, "votes": 4000},
+            ]),
+        ]
+        data = extract_chart_data(records)
+        self.assertEqual(data["ci"]["Alpha"], [8])
+        self.assertEqual(data["ci"]["Beta"], [10])
+
+    def test_overtake_data(self):
+        records = [
+            _make_record(
+                "2026-02-18T12:00:00Z",
+                [
+                    {"rank": 1, "name": "Alpha", "score": 1500, "ci": 8, "votes": 5000},
+                    {"rank": 2, "name": "Beta", "score": 1490, "ci": 10, "votes": 4000},
+                ],
+                overtake=[{"name": "Beta", "prob": 0.35, "gap": 10}],
+                leader_prob=0.65,
+            ),
+        ]
+        data = extract_chart_data(records)
+        self.assertEqual(data["overtake"]["Beta"], [0.35])
+        self.assertEqual(data["leader_prob"], [0.65])
+
+    def test_h2h_data(self):
+        records = [
+            _make_record(
+                "2026-02-18T12:00:00Z",
+                [
+                    {"rank": 1, "name": "Alpha", "score": 1500, "ci": 8, "votes": 5000},
+                    {"rank": 2, "name": "Beta", "score": 1490, "ci": 10, "votes": 4000},
+                ],
+                h2h=[{"name": "Beta", "wr": 0.48, "gap": 10}],
+            ),
+        ]
+        data = extract_chart_data(records)
+        self.assertEqual(data["h2h"]["Beta"], [0.48])
+
+    def test_contender_absent_in_earlier_record(self):
+        """Score gap is None when contender is absent from a snapshot."""
         records = [
             _make_record("2026-02-18T12:00:00Z", [
                 {"rank": 1, "name": "Alpha", "score": 1500, "ci": 8, "votes": 5000},
@@ -54,91 +151,42 @@ class TestExtractChartData(unittest.TestCase):
                 {"rank": 2, "name": "Beta", "score": 1492, "ci": 9, "votes": 4400},
             ]),
         ]
-        data = extract_chart_data(records, top_n=5)
-        # Beta should be None for the first record.
-        self.assertIsNone(data["models"]["Beta"][0])
-        self.assertIsNotNone(data["models"]["Beta"][1])
+        data = extract_chart_data(records)
+        # Beta wasn't in the first snapshot.
+        self.assertIsNone(data["score_gap"]["Beta"][0])
+        self.assertEqual(data["score_gap"]["Beta"][1], 10)
 
-    def test_extracts_overtake_data(self):
-        records = [
-            _make_record(
-                "2026-02-18T12:00:00Z",
-                [{"rank": 1, "name": "Alpha", "score": 1500}],
-                overtake=[{"name": "Beta", "prob": 0.35, "gap": 10}],
-                leader_prob=0.65,
-            ),
-        ]
-        data = extract_chart_data(records, top_n=5)
-        self.assertEqual(data["overtake"]["Beta"][0], 0.35)
-        self.assertEqual(data["leader_prob"][0], 0.65)
-
-    def test_extracts_h2h_data(self):
-        records = [
-            _make_record(
-                "2026-02-18T12:00:00Z",
-                [{"rank": 1, "name": "Alpha", "score": 1500}],
-                h2h=[{"name": "Beta", "wr": 0.48, "gap": 10}],
-            ),
-        ]
-        data = extract_chart_data(records, top_n=5)
-        self.assertEqual(data["h2h"]["Beta"][0], 0.48)
-
-    def test_top_n_limits_models(self):
-        models = [{"rank": i, "name": f"model-{i}", "score": 1500 - i} for i in range(1, 25)]
-        records = [_make_record("2026-02-18T12:00:00Z", models)]
-        data = extract_chart_data(records, top_n=5)
-        # Only the top 5 models should be in data and in chart_models.top.
-        self.assertEqual(len(data["models"]), 5)
-        self.assertEqual(len(data["chart_models"]["top"]), 5)
-        self.assertEqual(data["chart_models"]["top"][0], "model-1")
-
-    def test_chart_models_separates_overtake_from_top(self):
-        """Overtake-only models should NOT appear in the top chart list."""
+    def test_contenders_ordered_by_rank(self):
         records = [
             _make_record(
                 "2026-02-18T12:00:00Z",
                 [
                     {"rank": 1, "name": "Alpha", "score": 1500, "ci": 8, "votes": 5000},
                     {"rank": 2, "name": "Beta", "score": 1490, "ci": 10, "votes": 4000},
+                    {"rank": 5, "name": "Epsilon", "score": 1460, "ci": 9, "votes": 3000},
                 ],
-                overtake=[{"name": "Gamma", "prob": 0.20, "gap": 10}],
-            ),
-        ]
-        data = extract_chart_data(records, top_n=5)
-        # Gamma is in overtake chart but NOT in top charts.
-        self.assertIn("Gamma", data["chart_models"]["overtake"])
-        self.assertNotIn("Gamma", data["chart_models"]["top"])
-        # Gamma's data is still collected for the overtake chart.
-        self.assertIn("Gamma", data["overtake"])
-
-    def test_overtake_filters_negligible_probability(self):
-        """Models with overtake prob <= 1% are excluded from overtake chart."""
-        records = [
-            _make_record(
-                "2026-02-18T12:00:00Z",
-                [{"rank": 1, "name": "Alpha", "score": 1500}],
                 overtake=[
-                    {"name": "Strong", "prob": 0.35, "gap": 5},
-                    {"name": "Weak", "prob": 0.001, "gap": 50},
-                    {"name": "Zero", "prob": 0.0, "gap": 100},
+                    {"name": "Epsilon", "prob": 0.10, "gap": 40},
+                    {"name": "Beta", "prob": 0.35, "gap": 10},
                 ],
             ),
         ]
-        data = extract_chart_data(records, top_n=5)
-        self.assertIn("Strong", data["chart_models"]["overtake"])
-        self.assertNotIn("Weak", data["chart_models"]["overtake"])
-        self.assertNotIn("Zero", data["chart_models"]["overtake"])
+        data = extract_chart_data(records)
+        # Beta (rank 2) should come before Epsilon (rank 5).
+        self.assertEqual(data["contenders"], ["Beta", "Epsilon"])
 
 
 class TestGenerateDashboard(unittest.TestCase):
     def test_generates_html_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            # Create a minimal timeseries file.
             ts_dir = Path(tmpdir) / "timeseries"
             ts_dir.mkdir()
             record = _make_record(
                 "2026-02-18T12:00:00Z",
-                [{"rank": 1, "name": "Alpha", "score": 1500, "ci": 8, "votes": 5000}],
+                [
+                    {"rank": 1, "name": "Alpha", "score": 1500, "ci": 8, "votes": 5000},
+                    {"rank": 2, "name": "Beta", "score": 1490, "ci": 10, "votes": 4000},
+                ],
             )
             (ts_dir / "top20.jsonl").write_text(json.dumps(record) + "\n")
 
@@ -147,7 +195,7 @@ class TestGenerateDashboard(unittest.TestCase):
             self.assertEqual(result, output)
             self.assertTrue(output.exists())
             content = output.read_text()
-            self.assertIn("Arena Leaderboard Dashboard", content)
+            self.assertIn("Kalshi Settlement Dashboard", content)
             self.assertIn("Plotly", content)
             self.assertIn("Alpha", content)
 
